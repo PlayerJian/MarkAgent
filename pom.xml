@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.markagent</groupId>
+    <artifactId>markagent-parent</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+    <name>MarkAgent</name>
+    <description>企业级 Agent 聊天助手（AgentScope Java 2.0 + Spring AI + DeepSeek）</description>
+
+    <modules>
+        <module>common</module>
+        <module>server</module>
+        <module>cli</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- 版本单点：三 BOM 精确对齐（实测 spring-ai 2.0.2 构建于 Boot 4.1.2，agentscope 2.0.4 starter 构建于 Boot 4.0.1，由下方 dependencyManagement 统一升到 4.1.2） -->
+        <spring-boot.version>4.1.2</spring-boot.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
+        <agentscope.version>2.0.4</agentscope.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <picocli.version>4.7.7</picocli.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 顺序敏感：先 import 的赢。Boot 必须先于 agentscope（其 starter 硬依赖 autoconfigure 4.0.1，此处升到 4.1.2） -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.agentscope</groupId>
+                <artifactId>agentscope-bom</artifactId>
+                <version>${agentscope.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.markagent</groupId>
+                <artifactId>markagent-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

@@ -1,0 +1,25 @@
+# Maven
+target/
+.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
+
+# Node / Vite
+node_modules/
+web/dist/
+web/dev-dist/
+
+# 运行时数据（用户数据、agent 状态、事件流水）
+data/
+*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+Thumbs.db
+.DS_Store

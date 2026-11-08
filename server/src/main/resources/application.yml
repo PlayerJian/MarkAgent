@@ -1,0 +1,85 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: markagent-server
+  autoconfigure:
+    exclude:
+      # 模型统一由我方条件化装配（LlmConfig），排除无 key 也会强制创建 Bean 的自动装配
+      - org.springframework.ai.model.deepseek.autoconfigure.DeepSeekChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiChatAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiImageAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioSpeechAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiAudioTranscriptionAutoConfiguration
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiModerationAutoConfiguration
+  ai:
+    # 直连 DeepSeek（仅 provider=deepseek-direct 时配 key；无 key 则 DeepSeekChatModel 不自动装配）
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+      chat:
+        options:
+          model: deepseek-flash
+          thinking:
+            type: disabled
+    # OpenAI 兼容通道，仅用于 embedding（百炼兼容端点 / SiliconFlow BGE）；聊天功能不用
+    openai:
+      api-key: ${EMBEDDING_API_KEY:}
+      base-url: ${EMBEDDING_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-v3}
+
+# AgentScope 2.0.4：模型 starter 的装配由 agentscope.model.provider 条件门控（空值默认走 dashscope，
+# 会因无 key 启动失败）。我方模型统一由 Spring AI bridge 提供（M2），此处置 deepseek-direct 跳过两个模型 starter
+agentscope:
+  model:
+    provider: deepseek-direct
+
+markagent:
+  storage:
+    root: ./data
+  agent:
+    name: MarkAgent
+    sys-prompt: |
+      你是 MarkAgent，一名专业的企业级 AI 助手，具备任务规划、工具调用与多智能体协作能力。
+      - 使用与用户相同的语言回答（默认中文）。
+      - 多步骤任务（研究、编码、写作、数据分析等）先用 plan_write 工具制定计划，每完成一步调用 plan_mark_done 标记进度。
+      - 计算类问题优先用 calculator 工具，需要当前时间用 now 工具，需要外部数据用 http_get/http_post，需要保存中间产物用 file_write。
+      - 需要最新网络信息、实时资讯或事实查证时用 web_search 工具（query 为空格分隔的关键词）；搜索结果仅为网页快照，重要结论需交叉验证。
+      - 任务开始前先 memory_search 检索用户长期记忆；发现用户偏好、重要约定、值得跨会话记住的结论时用 memory_save 写入长期记忆。
+      - 需要分工协作的复杂任务（调研+写作、多模块开发等）用 spawn_agent 派生专家 worker 并行执行子任务，然后汇总各 worker 结论形成终稿；简单任务不必派生。
+      - 工具结果不充分时如实说明，不编造。
+    max-iters: 30
+    stream-timeout-minutes: 10
+  llm:
+    provider: ${MARKAGENT_LLM_PROVIDER:deepseek-direct}   # deepseek-direct | bailian
+    default-model: ${MARKAGENT_LLM_MODEL:deepseek-flash}
+  embedding:
+    enabled: ${MARKAGENT_EMBEDDING_ENABLED:true}          # 无 embedding key 时置 false → 关键词检索降级
+    provider: ${MARKAGENT_EMBEDDING_PROVIDER:bailian-compatible}
+  context:
+    max-tokens: 1000000
+    compact-threshold: 0.75
+  security:
+    jwt:
+      secret: ${MARKAGENT_JWT_SECRET:}
+      ttl-hours: 72
+    bootstrap-admin:
+      username: admin
+      password: ${MARKAGENT_ADMIN_PASSWORD:admin123}
+  web:
+    static-locations: classpath:/static/
+  mcp:
+    stdio-timeout-ms: 10000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.markagent: INFO
+    io.agentscope: DEBUG
