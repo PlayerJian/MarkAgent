@@ -56,6 +56,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       taskStatus: 'running',
       error: null,
       lastSeq: 0,
+      compactNotice: null,
     })
     const accepted = await post<{ taskId: string; sessionId: string }>('/chat', {
       goal,
@@ -122,7 +123,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController = null
     set({
       messages: [], taskId: null, sessionId: null, plan: null, agents: [],
-      taskStatus: 'idle', error: null, lastSeq: 0,
+      taskStatus: 'idle', error: null, lastSeq: 0, compactNotice: null,
     })
   },
 }))

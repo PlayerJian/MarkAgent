@@ -4,6 +4,7 @@ import com.markagent.agent.model.TaskIdContext;
 import com.markagent.agent.model.TaskModelContext;
 import com.markagent.agent.model.TaskThinkingContext;
 import com.markagent.common.dto.ChatAccepted;
+import com.markagent.common.dto.ChatMessage;
 import com.markagent.common.dto.ChatRequest;
 import com.markagent.common.dto.CheckpointRecord;
 import com.markagent.common.dto.TaskOptions;
@@ -11,9 +12,15 @@ import com.markagent.common.dto.TaskRecord;
 import com.markagent.common.dto.TaskStatus;
 import com.markagent.common.dto.SessionRecord;
 import com.markagent.common.sse.SseEventType;
+import com.markagent.ask.AskRegistry;
+import com.markagent.inbox.InboxMessage;
+import com.markagent.inbox.SessionInboxService;
+import com.markagent.compact.AutoCompactService;
 import com.markagent.config.MarkAgentProperties;
+import com.markagent.context.TokenBudgetService;
 import com.markagent.events.SseEmitterRegistry;
-import com.markagent.skills.SkillRegistry;
+import com.markagent.prompt.PromptAssembler;
+import com.markagent.sessionmemory.SessionMemoryService;
 import com.markagent.store.CheckpointStore;
 import com.markagent.store.SessionStore;
 import com.markagent.store.TaskStore;
@@ -76,9 +83,14 @@ public class AgentChatService {
     private final CheckpointStore checkpointStore;
     private final SessionStore sessionStore;
     private final SseEmitterRegistry registry;
-    private final SkillRegistry skillRegistry;
+    private final PromptAssembler promptAssembler;
     private final com.markagent.memory.MemoryService memoryService;
     private final com.markagent.tools.TeamTool teamTool;
+    private final TokenBudgetService tokenBudgetService;
+    private final AutoCompactService autoCompact;
+    private final SessionMemoryService sessionMemory;
+    private final AskRegistry askRegistry;
+    private final SessionInboxService inbox;
     private final AtomicInteger runningTasks;
     private final MarkAgentProperties properties;
 
@@ -94,22 +106,35 @@ public class AgentChatService {
     private final Map<String, Map<String, StringBuilder>> toolBuffers = new ConcurrentHashMap<>();
     /** taskId → 已流式广播的正文（AgentResultEvent 全文与 TextBlockDeltaEvent 增量去重） */
     private final Map<String, StringBuilder> textBuffers = new ConcurrentHashMap<>();
+    /** taskId → 本轮已结束的工具调用（终止态回填 assistant 消息用） */
+    private final Map<String, List<ChatMessage.ToolCallRef>> taskToolCalls = new ConcurrentHashMap<>();
 
     public AgentChatService(ReActAgent agent, TaskStore taskStore, CheckpointStore checkpointStore,
-            SessionStore sessionStore, SseEmitterRegistry registry, SkillRegistry skillRegistry,
+            SessionStore sessionStore, SseEmitterRegistry registry,
             AtomicInteger runningTasks, MarkAgentProperties properties,
             com.markagent.memory.MemoryService memoryService,
-            com.markagent.tools.TeamTool teamTool) {
+            com.markagent.tools.TeamTool teamTool,
+            PromptAssembler promptAssembler,
+            TokenBudgetService tokenBudgetService,
+            AutoCompactService autoCompact,
+            SessionMemoryService sessionMemory,
+            AskRegistry askRegistry,
+            SessionInboxService inbox) {
         this.agent = agent;
         this.taskStore = taskStore;
         this.checkpointStore = checkpointStore;
         this.sessionStore = sessionStore;
         this.registry = registry;
-        this.skillRegistry = skillRegistry;
+        this.promptAssembler = promptAssembler;
+        this.tokenBudgetService = tokenBudgetService;
+        this.autoCompact = autoCompact;
+        this.sessionMemory = sessionMemory;
         this.runningTasks = runningTasks;
         this.properties = properties;
         this.memoryService = memoryService;
         this.teamTool = teamTool;
+        this.askRegistry = askRegistry;
+        this.inbox = inbox;
         // 框架内部 fire-and-forget 订阅的错误会被 reactor 静默丢弃，落日志便于追查静默死亡
         Hooks.onErrorDropped(error -> log.error("Reactor 丢弃未处理错误: {}", error.toString(), error));
     }
@@ -133,13 +158,22 @@ public class AgentChatService {
                 TaskStatus.RUNNING, null, List.of(), options, now, now, null);
         taskStore.save(record);
 
-        // 会话记录（仅 UI 展示层；标题取首个任务描述前 40 字，后续任务只刷新 updatedAt 供列表排序）
+        // 会话记录（仅 UI 展示层；标题取首个任务描述前 40 字，后续任务只刷新 updatedAt 供列表排序）。
+        // messages 回填：每条任务开始追加一条 user 消息（数据层补全，暂无 UI 消费方）
+        ChatMessage userMessage = new ChatMessage(Ids.message(), "user", request.goal(), null, List.of(), now);
         sessionStore.get(userId, sessionId).ifPresentOrElse(
-                existing -> sessionStore.save(new SessionRecord(existing.id(), existing.userId(),
-                        existing.title(), existing.messages(), existing.createdAt(), now)),
+                existing -> {
+                    List<ChatMessage> messages = new ArrayList<>();
+                    if (existing.messages() != null) {
+                        messages.addAll(existing.messages());
+                    }
+                    messages.add(userMessage);
+                    sessionStore.save(new SessionRecord(existing.id(), existing.userId(),
+                            existing.title(), messages, existing.createdAt(), now));
+                },
                 () -> {
                     String title = request.goal().length() > 40 ? request.goal().substring(0, 40) + "…" : request.goal();
-                    sessionStore.save(new SessionRecord(sessionId, userId, title, List.of(), now, now));
+                    sessionStore.save(new SessionRecord(sessionId, userId, title, List.of(userMessage), now, now));
                 });
 
         runningTasks.incrementAndGet();
@@ -175,13 +209,25 @@ public class AgentChatService {
             pausedFlags.computeIfAbsent(task.id(), k -> new AtomicBoolean(false));
 
             List<Msg> msgs = new ArrayList<>();
+            long inboxMaxSeq = 0;
             if (resume) {
                 msgs.add(Msg.builderForRole(MsgRole.USER).textContent("请继续执行未完成的任务。").build());
             } else {
-                // 技能清单（name + 一句话描述）注入首条消息；正文经 skill_invoke 工具按需加载
-                String skillSection = skillRegistry.promptSection();
-                String goal = skillSection.isEmpty() ? task.goal()
-                        : skillSection + "\n## 用户任务\n" + task.goal();
+                // 动态上下文（技能清单 + 长期记忆索引 + 会话摘要）注入首条消息；技能正文经 skill_invoke 工具按需加载
+                String assembled = promptAssembler.assemble(task.userId(), task.sessionId(), task.goal());
+                String goal = assembled.isBlank() ? task.goal()
+                        : assembled + "\n## 用户任务\n" + task.goal();
+                // 跨会话信箱：投递到本会话的未读消息注入首条 user 消息（订阅成功后推进投递游标）
+                List<InboxMessage> inboxMessages = inbox.pending(task.userId(), task.sessionId());
+                if (!inboxMessages.isEmpty()) {
+                    StringBuilder section = new StringBuilder("\n\n## 跨会话消息\n");
+                    for (InboxMessage message : inboxMessages) {
+                        section.append("- [来自任务 ").append(message.fromTaskId()).append("] ")
+                                .append(message.content()).append('\n');
+                        inboxMaxSeq = Math.max(inboxMaxSeq, message.seq());
+                    }
+                    goal = goal + section;
+                }
                 msgs.add(Msg.builderForRole(MsgRole.USER).textContent(goal).build());
             }
 
@@ -201,6 +247,10 @@ public class AgentChatService {
                     .doFinally(sig -> latch.countDown())
                     .subscribe();
             subscriptions.put(task.id(), subscription);
+            // 信箱消息已进入首条 user 消息：推进投递游标（订阅成功建立后才标记；启动失败则下次重投）
+            if (inboxMaxSeq > 0) {
+                inbox.markDelivered(task.userId(), task.sessionId(), inboxMaxSeq);
+            }
 
         } catch (Exception e) {
             failTask(task, e);
@@ -218,6 +268,15 @@ public class AgentChatService {
         if (paused != null && paused.get()) {
             return; // pause() 已处理收尾（PAUSED 事件 + 落盘）
         }
+        String finalText = textBuffers.getOrDefault(task.id(), new StringBuilder()).toString();
+        // 1) 会话滚动记忆：阈值评估 + 后台虚拟线程记录（不阻塞终止广播）
+        sessionMemory.evaluateAndRecord(task.userId(), task.sessionId(), task.goal(), finalText,
+                currentUsedTokens(task));
+        // 2) 会话历史回填（assistant 消息）
+        backfillAssistantMessage(task, finalText);
+        // 3) 上下文压缩（同步；内部先估计再决定，失败绝不影响终止流程）
+        autoCompact.compactIfNeeded(task);
+        // 4) DONE 广播放最后（终态事件会关闭订阅流）
         broadcast(task.id(), SseEventType.DONE, Map.of("status", "COMPLETED"));
         finish(task, TaskStatus.COMPLETED, null);
         // 任务完成 → 日记摘要（当日 YYYY-MM-DD.md）
@@ -236,6 +295,10 @@ public class AgentChatService {
                 "code", "AGENT_EXECUTION_FAILED",
                 "message", message,
                 "retriable", true));
+        // 会话历史回填（失败态同样落一条 assistant 消息）
+        backfillAssistantMessage(task, textBuffers.getOrDefault(task.id(), new StringBuilder()).toString());
+        // DONE 前压缩（先估计再决定；失败不影响终止流程）
+        autoCompact.compactIfNeeded(task);
         broadcast(task.id(), SseEventType.DONE, Map.of("status", "FAILED"));
         finish(task, TaskStatus.FAILED, message);
     }
@@ -248,6 +311,9 @@ public class AgentChatService {
         }
         AtomicBoolean paused = pausedFlags.computeIfAbsent(taskId, k -> new AtomicBoolean(false));
         paused.set(true);
+
+        // 先取消待决人工审批再中断：被取消的 ask_user 工具线程立即返回「已取消」，不悬挂等超时
+        askRegistry.cancelPending(taskId);
 
         RuntimeContext rt = contexts.get(taskId);
         if (rt != null) {
@@ -284,6 +350,8 @@ public class AgentChatService {
                 "checkpointId", seq, "stateKey", checkpoint.stateKey()));
         broadcast(taskId, SseEventType.PAUSED, Map.of("checkpointId", seq));
         taskStore.save(withStatus(task, TaskStatus.PAUSED, checkpoints));
+        // 检查点落盘后：暂停也是终止态压缩点（先估计再决定；COMPACT 事件落 jsonl，resume 回放可见）
+        autoCompact.compactIfNeeded(task);
     }
 
     /** 恢复：同 (userId, sessionId) 重新 streamEvents，agent 自动加载持久化状态续跑 */
@@ -308,6 +376,8 @@ public class AgentChatService {
             return;
         }
         pausedFlags.computeIfAbsent(taskId, k -> new AtomicBoolean(false)).set(true);
+        // 先取消待决人工审批再中断（同 pause 路径：ask_user 工具线程立即返回，不悬挂）
+        askRegistry.cancelPending(taskId);
         RuntimeContext rt = contexts.get(taskId);
         if (rt != null) {
             agent.interrupt(rt);
@@ -327,9 +397,41 @@ public class AgentChatService {
         subscriptions.remove(task.id());
         toolBuffers.remove(task.id());
         textBuffers.remove(task.id());
+        taskToolCalls.remove(task.id());
         runLatches.remove(task.id());
+        autoCompact.cleanup(task.id());
         teamTool.cleanup(task.id());
+        askRegistry.removeByTask(task.id());
         runningTasks.decrementAndGet();
+    }
+
+    /** 终止态回填：assistant 消息（流式正文截断 1000 字符 + 本轮工具调用列表），保留既有 title/createdAt/updatedAt 语义 */
+    private void backfillAssistantMessage(TaskRecord task, String finalText) {
+        try {
+            String content = truncate(finalText == null ? "" : finalText, 1000);
+            List<ChatMessage.ToolCallRef> calls = taskToolCalls.getOrDefault(task.id(), List.of());
+            if (content.isBlank() && calls.isEmpty()) {
+                return;
+            }
+            ChatMessage message = new ChatMessage(Ids.message(), "assistant", content, null, calls,
+                    Instant.now().toString());
+            sessionStore.get(task.userId(), task.sessionId()).ifPresent(existing -> {
+                List<ChatMessage> messages = new ArrayList<>();
+                if (existing.messages() != null) {
+                    messages.addAll(existing.messages());
+                }
+                messages.add(message);
+                sessionStore.save(new SessionRecord(existing.id(), existing.userId(),
+                        existing.title(), messages, existing.createdAt(), existing.updatedAt()));
+            });
+        } catch (Exception e) {
+            log.warn("会话历史回填失败 task={}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    /** 当前会话上下文用量（会话记忆阈值评估用） */
+    private long currentUsedTokens(TaskRecord task) {
+        return tokenBudgetService.usage(task.userId(), task.sessionId()).usedTokens();
     }
 
     // ==================== AgentScope 新事件体系 → 统一 SSE ====================
@@ -363,11 +465,19 @@ public class AgentChatService {
                     return; // 工具挂起（suspended），等待真正的完成事件
                 }
                 StringBuilder buf = buffer(task.id()).remove(end.getToolCallId());
+                boolean ok = end.getState() == ToolResultState.SUCCESS;
+                String resultSummary = truncate(buf == null ? "" : buf.toString(), 500);
                 broadcast(task.id(), SseEventType.TOOL_END, Map.of(
                         "callId", end.getToolCallId(),
                         "name", end.getToolCallName(),
-                        "ok", end.getState() == ToolResultState.SUCCESS,
-                        "resultSummary", truncate(buf == null ? "" : buf.toString(), 500)));
+                        "ok", ok,
+                        "resultSummary", resultSummary));
+                // 会话滚动记忆：工具调用计数（SUCCESS 与失败都算一次）
+                sessionMemory.onToolCall(task.userId(), task.sessionId());
+                // 终止态回填：记录本轮已结束的工具调用
+                taskToolCalls.computeIfAbsent(task.id(), k -> new ArrayList<>())
+                        .add(new ChatMessage.ToolCallRef(end.getToolCallId(), end.getToolCallName(),
+                                null, resultSummary, ok));
             } else if (event instanceof ToolCallEndEvent toolCallEnd) {
                 log.debug("工具调用已发出 task={} callId={}", task.id(), toolCallEnd.getToolCallId());
             } else if (event instanceof AgentResultEvent result) {
@@ -398,6 +508,8 @@ public class AgentChatService {
                 log.info("任务收到停止请求 task={}", task.id());
             } else if (event instanceof AgentEndEvent) {
                 log.debug("agent 结束 task={}", task.id());
+                // 每轮迭代检查上下文压缩阈值，达标广播 planned（per-task 去重）
+                autoCompact.checkAndBroadcast(task);
             } else {
                 // AGENT_START/MODEL_CALL_START/TEXT_BLOCK_START 等生命周期事件无需映射，debug 级记录
                 log.debug("EVENT unmapped type={} class={} task={}", event.getType(), event.getClass().getSimpleName(), task.id());

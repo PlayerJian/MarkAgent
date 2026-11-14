@@ -115,7 +115,7 @@ export default function MemoryPage() {
             </Space>
             <Progress
               percent={Math.round(usage.percent * 10000) / 100}
-              strokeColor={usage.percent > 0.75 ? '#faad14' : '#1677ff'}
+              strokeColor={usage.percent > 0.75 ? 'var(--amber)' : 'var(--cyan)'}
               size="small"
             />
           </Space>

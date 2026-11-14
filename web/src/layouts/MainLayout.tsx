@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Layout, Menu, Dropdown, Avatar, theme } from 'antd'
+import { Layout, Menu, Dropdown, Avatar } from 'antd'
 import {
   CommentOutlined,
   UnorderedListOutlined,
@@ -31,7 +31,6 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuthStore()
-  const { token: themeToken } = theme.useToken()
 
   const selectedKey = menuItems
     .map((m) => m.key)
@@ -41,19 +40,36 @@ export default function MainLayout() {
   return (
     <Layout style={{ height: '100vh' }}>
       {/* 桌面侧边栏 */}
-      <Sider theme="light" width={200} className="desktop-only" style={{ borderRight: '1px solid #f0f0f0' }}>
+      <Sider theme="dark" width={200} className="desktop-only" style={{ borderRight: '1px solid var(--line-2)' }}>
         <div
           style={{
             height: 56,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontWeight: 700,
-            fontSize: 18,
-            color: themeToken.colorPrimary,
+            gap: 9,
           }}
         >
-          🤖 MarkAgent
+          <svg width="25" height="25" viewBox="0 0 40 40" aria-hidden="true">
+            <polygon
+              points="20,4 34,12 34,28 20,36 6,28 6,12"
+              fill="none"
+              stroke="#39e6ff"
+              strokeWidth="1.6"
+            />
+            <circle cx="20" cy="20" r="3.4" fill="#39e6ff" />
+          </svg>
+          <span
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 14.5,
+              letterSpacing: '.14em',
+              color: 'var(--cyan)',
+            }}
+          >
+            MARKAGENT
+          </span>
         </div>
         <Menu mode="inline" selectedKeys={[selectedKey]} items={menuItems} onClick={(e) => navigate(e.key)} />
       </Sider>
@@ -61,12 +77,12 @@ export default function MainLayout() {
       <Layout>
         <Header
           style={{
-            background: '#fff',
+            background: 'transparent',
             padding: '0 16px',
             display: 'flex',
             justifyContent: 'flex-end',
             alignItems: 'center',
-            borderBottom: '1px solid #f0f0f0',
+            borderBottom: '1px solid var(--line-2)',
           }}
         >
           <Dropdown

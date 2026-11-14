@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
  * <ul>
  *   <li>无 stateStore —— 不落 AgentState，避免与 leader 的 (userId, sessionId) 状态互踩；
  *       任务级断点恢复只挂 leader，worker 结果随 leader 上下文持久化</li>
- *   <li>工具集裁剪：calculator/dateTime/httpRequest/web_search/workspaceFile，不含 spawn_agent
+ *   <li>工具集裁剪：calculator/dateTime/httpRequest/web_search/web_fetch/workspaceFile，不含 spawn_agent
  *       （防无限派生）、planTool（计划只属于 leader）、skillTool/memoryTool</li>
  * </ul>
  */
@@ -32,20 +32,27 @@ public class WorkerAgentFactory {
             com.markagent.tools.DateTimeTool dateTime,
             com.markagent.tools.HttpRequestTool httpRequest,
             com.markagent.tools.WebSearchTool webSearch,
-            com.markagent.tools.WorkspaceFileTool workspaceFile) {
+            com.markagent.tools.WebFetchTool webFetch,
+            com.markagent.tools.WorkspaceFileTool workspaceFile,
+            com.markagent.tools.FileSearchTool fileSearch,
+            com.markagent.tools.FileEditTool fileEdit) {
         Toolkit toolkit = new Toolkit();
         MarkAgentToolRegistrar.register(toolkit, calculator);
         MarkAgentToolRegistrar.register(toolkit, dateTime);
         MarkAgentToolRegistrar.register(toolkit, httpRequest);
         MarkAgentToolRegistrar.register(toolkit, webSearch);
+        MarkAgentToolRegistrar.register(toolkit, webFetch);
         MarkAgentToolRegistrar.register(toolkit, workspaceFile);
+        MarkAgentToolRegistrar.register(toolkit, fileSearch);
+        MarkAgentToolRegistrar.register(toolkit, fileEdit);
 
         String sysPrompt = """
                 你是专家 worker「%s」，在一个多智能体团队中执行子任务。
                 职责：%s
                 规则：
                 - 只做交给你的子任务，最终用中文输出简洁完整的结果汇报。
-                - 需要外部数据用 http_get/http_post，需要最新资讯/实时信息检索用 web_search，需要计算用 calculator，需要保存中间产物用 file_write。
+                - 需要外部数据用 http_get/http_post，需要最新资讯/实时信息检索用 web_search，需要抓取并提炼网页内容用 web_fetch，需要计算用 calculator，需要保存中间产物用 file_write。
+                - 工作区内搜索内容用 file_grep，按文件名找文件用 file_glob，修改文件用 file_edit。
                 - 不调用 spawn_agent，不制定总计划，那是 leader 的职责。
                 """.formatted(agentId, role);
 

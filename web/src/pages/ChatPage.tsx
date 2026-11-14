@@ -21,6 +21,7 @@ export default function ChatPage() {
   const plan = useChatStore((s) => s.plan)
   const agents = useChatStore((s) => s.agents)
   const error = useChatStore((s) => s.error)
+  const compactNotice = useChatStore((s) => s.compactNotice)
   const send = useChatStore((s) => s.send)
   const setModel = useChatStore((s) => s.setModel)
   const setPlanning = useChatStore((s) => s.setPlanning)
@@ -153,7 +154,7 @@ export default function ChatPage() {
               description={<Text type="secondary">向 MarkAgent 描述你的任务，例如：「调研 AgentScope 与 Spring AI 的集成方式并给出对比报告」</Text>}
             />
           ) : (
-            <ConversationList messages={messages} plan={plan} agents={agents} taskStatus={taskStatus} />
+            <ConversationList messages={messages} plan={plan} agents={agents} taskStatus={taskStatus} compactNotice={compactNotice} />
           )}
         </div>
         {showJump && (

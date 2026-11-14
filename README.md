@@ -8,7 +8,7 @@
 | 能力 | 实现 |
 |---|---|
 | Planning | AgentScope TaskPlanning + `plan_write`/`plan_mark_done` 工具，计划树实时推送 |
-| Tool Use | 内置 calculator / now / http_get / http_post / **web_search**（自研免 key 搜索：Bing→DuckDuckGo 自动降级）/ file_write / file_read / plan / memory / skill / spawn_agent + MCP 动态注册 |
+| Tool Use | 内置 calculator / now / http_get / http_post / **web_search**（自研免 key 搜索：Bing→DuckDuckGo 自动降级，支持域名过滤）/ **web_fetch**（抓取网页按 prompt 提炼：HTML→Markdown、跨域重定向控制、15 分钟缓存）/ file_write / file_read / plan / memory / skill / spawn_agent + MCP 动态注册 |
 | Memory | 会话态（AgentScope AgentStateStore 持久化）+ 长期记忆（MEMORY.md / 日记 / 向量检索三档降级）+ 上下文压缩（75% 阈值） |
 | Multi-Agent | `spawn_agent` 派生专家 worker（独立 ReActAgent，事件扇出 AGENT_MSG/AGENT_DONE） |
 | 任务持久化 | JSON 文件存储（TaskStore/SessionStore/CheckpointStore，接口抽象可换 JDBC） |

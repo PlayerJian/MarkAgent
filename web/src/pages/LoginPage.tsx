@@ -45,14 +45,29 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #e6f4ff 0%, #f0f5ff 50%, #f9f0ff 100%)',
+        background:
+          'radial-gradient(ellipse at 50% 28%, rgba(57,230,255,0.14) 0%, rgba(8,13,23,0.9) 58%, #05080f 100%)',
       }}
     >
-      <Card style={{ width: 380, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+      <Card style={{ width: 380, boxShadow: '0 0 36px rgba(57,230,255,0.18)' }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 32 }}>🤖</div>
-          <h2 style={{ margin: '8px 0 4px' }}>MarkAgent</h2>
-          <div style={{ color: '#999' }}>企业级智能助手</div>
+          <svg width="46" height="46" viewBox="0 0 40 40" style={{ margin: '0 auto' }}>
+            <polygon points="20,4 34,12 34,28 20,36 6,28 6,12" fill="none" stroke="#39e6ff" strokeWidth="1.6" />
+            <circle cx="20" cy="20" r="3.6" fill="#39e6ff" />
+          </svg>
+          <h2
+            style={{
+              margin: '10px 0 4px',
+              fontFamily: 'var(--font-display)',
+              letterSpacing: '.12em',
+              color: 'var(--cyan)',
+            }}
+          >
+            MARKAGENT
+          </h2>
+          <div style={{ color: 'var(--tx-3)', fontFamily: 'var(--font-display)', fontSize: 12, letterSpacing: '.1em' }}>
+            企业级智能体指挥舱
+          </div>
         </div>
         <Tabs
           centered

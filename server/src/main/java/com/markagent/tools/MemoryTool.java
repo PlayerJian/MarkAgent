@@ -23,7 +23,8 @@ public class MemoryTool {
     }
 
     @Tool(name = "memory_save", description = "把需要长期记住的重要信息写入用户长期记忆（跨会话保留）。"
-            + "适用：用户偏好、重要结论、事实约定等。不要写入临时性的中间结果。",
+            + "只存有长期价值的内容：用户偏好、重要约定、跨会话结论；不保存临时中间结果与可从对话推导的内容。"
+            + "保存前先 memory_search 查重，已有相关记忆时更新优于重复追加。",
             strict = true, readOnly = false, concurrencySafe = false)
     public String save(@ToolParam(name = "content", required = true,
             description = "要记住的内容（简洁、自包含的事实陈述）") String content) {

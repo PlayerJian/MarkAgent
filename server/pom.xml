@@ -66,6 +66,13 @@
             <artifactId>agentscope-dashscope-spring-boot-starter</artifactId>
         </dependency>
         <!-- skills 能力在 agentscope-core/harness 内（BOM 无独立 skills 工件），M4 核实；如需 Git 技能仓库同步可加 agentscope-extensions-skill-git-repository -->
+        <!-- MCP SDK（显式声明，版本与 agentscope-core 2.0.4 的传递依赖一致）：
+             绕过 AgentScope 未暴露的 resources API，直接引用底层 SDK 实现 MCP 资源读取 -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>0.17.2</version>
+        </dependency>
 
         <!-- JWT（M3 认证用） -->
         <dependency>

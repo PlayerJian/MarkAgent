@@ -214,6 +214,7 @@ function TaskRecordCard({ task, onChanged }: { task: TaskRecord; onChanged: () =
                 plan={state.plan}
                 agents={state.agents}
                 taskStatus={state.taskStatus}
+                compactNotice={state.compactNotice}
               />
               {state.messages.length === 0 && (
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无对话记录" />
