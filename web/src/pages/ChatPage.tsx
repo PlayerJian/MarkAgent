@@ -1,18 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  Alert, Badge, Button, Empty, Input, Select, Space, Tooltip, Typography,
+  Alert, Badge, Button, Empty, Input, Segmented, Select, Space, Spin, Tag, Tooltip, Typography, Upload, message,
 } from 'antd'
 import {
-  ArrowDownOutlined, CaretRightOutlined, PauseOutlined, PlusOutlined, StopOutlined,
+  ArrowDownOutlined, CaretRightOutlined, PauseOutlined, PaperClipOutlined, PlusOutlined, StopOutlined,
 } from '@ant-design/icons'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useChatStore } from '../stores/chatStore'
 import { ConversationList, STATUS_BADGE } from '../components/ConversationView'
+import { get, upload } from '../api/client'
+import type { DocSourceUi } from '../stores/chatStore'
 
 const { Text } = Typography
 const { TextArea } = Input
 
+interface LibraryItem {
+  id: string
+  name: string
+}
+
 /** 对话工作台：模型选择 + 流式消息 + 任务控制（pause/resume/stop） */
 export default function ChatPage() {
+  const { sessionId: paramSessionId } = useParams()
+  const navigate = useNavigate()
   const messages = useChatStore((s) => s.messages)
   const taskStatus = useChatStore((s) => s.taskStatus)
   const model = useChatStore((s) => s.model)
@@ -30,12 +40,35 @@ export default function ChatPage() {
   const resumeTask = useChatStore((s) => s.resumeTask)
   const stopTask = useChatStore((s) => s.stopTask)
   const reset = useChatStore((s) => s.reset)
+  const sessionLoading = useChatStore((s) => s.sessionLoading)
+  const loadSession = useChatStore((s) => s.loadSession)
+
+  // /chat/:sessionId 历史会话：store 中不是该会话时拉取记录加载进工作台（续聊由服务端按 sessionId 继承上下文）。
+  // / 路由不自动清空：保留全局状态，与既有「切页再回来对话还在」的导航行为一致。
+  useEffect(() => {
+    if (paramSessionId && useChatStore.getState().sessionId !== paramSessionId) {
+      loadSession(paramSessionId)
+    }
+  }, [paramSessionId, loadSession])
 
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   /** 是否粘底跟随：用户上翻查看历史后置 false，回到底部（或发新消息）后恢复 */
   const stickRef = useRef(true)
   const [showJump, setShowJump] = useState(false)
+
+  // 文档检索来源（库 / 单文件，二选一互斥；会话级绑定由服务端跨轮次继承）
+  const docSource = useChatStore((s) => s.docSource)
+  const setDocSource = useChatStore((s) => s.setDocSource)
+  const [libraries, setLibraries] = useState<LibraryItem[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [messageApi, contextHolder] = message.useMessage()
+
+  useEffect(() => {
+    get<LibraryItem[]>('/docs/libraries')
+      .then((list) => setLibraries(list))
+      .catch(() => { /* 401 由 client 统一处理 */ })
+  }, [])
 
   const scrollToBottom = () => {
     const el = listRef.current
@@ -73,6 +106,43 @@ export default function ChatPage() {
       /* 错误已在 store.error 展示 */
     }
   }
+
+  /** 单文件上传 → 临时上传 ID（发起任务时经 source.uploadId 引用） */
+  const onFileUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await upload<{ uploadId: string; fileName: string }>('/docs/temp-uploads', form)
+      setDocSource({ kind: 'file', uploadId: res.uploadId, fileName: res.fileName })
+      messageApi.success(`已上传 ${res.fileName}，发送提问时即绑定该文档`)
+    } catch (e) {
+      messageApi.error(e instanceof Error ? e.message : '上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  /** 检索范围标签（当前绑定 + 清除） */
+  const sourceLabel = (() => {
+    if (docSource.kind === 'library' && docSource.libraryId) {
+      return `文档库:${docSource.libraryName ?? docSource.libraryId}`
+    }
+    if (docSource.kind === 'file' && docSource.uploadId) {
+      return `文件:${docSource.fileName ?? docSource.uploadId}`
+    }
+    return null
+  })()
+  const sourceTag = sourceLabel && (
+    <Tag
+      closable
+      color="geekblue"
+      onClose={() => setDocSource({ kind: 'none' })}
+      style={{ marginInlineEnd: 0 }}
+    >
+      {sourceLabel}
+    </Tag>
+  )
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', maxWidth: 960, margin: '0 auto', width: '100%' }}>
@@ -133,7 +203,16 @@ export default function ChatPage() {
         )}
         <div style={{ flex: 1 }} />
         {messages.length > 0 && (
-          <Button size="small" icon={<PlusOutlined />} onClick={reset}>新对话</Button>
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              reset()
+              navigate('/')
+            }}
+          >
+            新对话
+          </Button>
         )}
       </div>
 
@@ -148,7 +227,11 @@ export default function ChatPage() {
           onScroll={onListScroll}
           style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 4px' }}
         >
-          {messages.length === 0 ? (
+          {sessionLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 80 }}>
+              <Spin />
+            </div>
+          ) : messages.length === 0 ? (
             <Empty
               style={{ marginTop: 80 }}
               description={<Text type="secondary">向 MarkAgent 描述你的任务，例如：「调研 AgentScope 与 Spring AI 的集成方式并给出对比报告」</Text>}
@@ -175,6 +258,65 @@ export default function ChatPage() {
 
       {/* 输入区 */}
       <div style={{ padding: '12px 0 16px' }}>
+        {contextHolder}
+        {/* 检索范围：文档库 / 上传文件 二选一互斥；无则普通任务 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <Segmented
+            size="small"
+            value={docSource.kind}
+            disabled={taskStatus === 'running'}
+            onChange={(v) => {
+              const kind = v as DocSourceUi['kind']
+              if (kind === docSource.kind) return
+              if (kind === 'none') setDocSource({ kind: 'none' })
+              else setDocSource({ kind })
+            }}
+            options={[
+              { value: 'none', label: '普通问答' },
+              { value: 'library', label: '文档库' },
+              { value: 'file', label: '上传文件' },
+            ]}
+          />
+          {docSource.kind === 'library' && (
+            <Select
+              size="small"
+              placeholder="选择文档库"
+              style={{ minWidth: 200 }}
+              value={docSource.libraryId}
+              disabled={taskStatus === 'running'}
+              onChange={(id, opt) => {
+                const item = Array.isArray(opt) ? opt[0] : opt
+                setDocSource({
+                  kind: 'library',
+                  libraryId: id,
+                  libraryName: (item as { label?: unknown } | undefined)?.label as string | undefined,
+                })
+              }}
+              options={libraries.map((l) => ({ value: l.id, label: l.name }))}
+            />
+          )}
+          {docSource.kind === 'file' && (
+            <Upload
+              showUploadList={false}
+              accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx,.pptx"
+              disabled={taskStatus === 'running' || uploading}
+              customRequest={({ file, onSuccess, onError }) => {
+                onFileUpload(file as File)
+                  .then(() => onSuccess?.(null))
+                  .catch((e) => onError?.(e as Error))
+              }}
+            >
+              <Button size="small" icon={<PaperClipOutlined />} loading={uploading}
+                disabled={taskStatus === 'running'}>
+                上传文档
+              </Button>
+            </Upload>
+          )}
+          {sourceTag}
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            选库/传文件后，多轮问答自动沿用同一检索范围，模型按需检索
+          </Text>
+        </div>
         <TextArea
           value={input}
           onChange={(e) => setInput(e.target.value)}

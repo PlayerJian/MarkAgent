@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
@@ -60,13 +61,15 @@ public class CronJobService {
     private volatile List<CronJob> jobs = List.of();
     private final AtomicBoolean schedulerRunning = new AtomicBoolean(false);
 
-    /** Spring 装配入口：默认触发器 = AgentChatService.start（会话 id 由 fireDue 每次触发换新） */
+    /** Spring 装配入口：默认触发器 = AgentChatService.start（会话 id 由 fireDue 每次触发换新）。
+     *  chatService 加 @Lazy 断开循环依赖（agentChatService → toolkit → cronTool → cronJobService），
+     *  代理在触发时才解析，启动期无需真实实例。 */
     @Autowired
     public CronJobService(Path storageRoot, ObjectMapper mapper, TaskStore taskStore,
-            AgentChatService chatService,
+            @Lazy AgentChatService chatService,
             @Value("${markagent.cron.enabled:true}") boolean schedulingEnabled) {
         this(storageRoot, mapper, taskStore,
-                job -> chatService.start(new ChatRequest(job.sessionId(), job.prompt(), null), job.userId()),
+                job -> chatService.start(new ChatRequest(job.sessionId(), job.prompt(), null, null), job.userId()),
                 schedulingEnabled, DEFAULT_POLL_INTERVAL_MS);
     }
 

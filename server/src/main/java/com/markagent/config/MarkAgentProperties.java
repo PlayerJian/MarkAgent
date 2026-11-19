@@ -1,6 +1,7 @@
 package com.markagent.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * markagent.* 自定义配置。
@@ -21,15 +22,21 @@ public record MarkAgentProperties(
         SessionMemory sessionMemory,
         Audit audit,
         AskUser askUser,
-        Inbox inbox
+        Inbox inbox,
+        Docs docs
 ) {
 
-    /** 旧签名兼容构造（audit/ask-user/inbox 置 null 走各自缺省归一），存量测试夹具无需改动 */
+    /** 显式声明绑定构造器：类上有旧签名兼容构造时，引导 Boot 固定走 canonical 构造绑定 */
+    @ConstructorBinding
+    public MarkAgentProperties {
+    }
+
+    /** 旧签名兼容构造（audit/ask-user/inbox/docs 置 null 走各自缺省归一），存量测试夹具无需改动 */
     public MarkAgentProperties(Storage storage, Llm llm, Embedding embedding, Context context,
             Security security, Web web, Mcp mcp, Agent agent, Memory memory, Compact compact,
             SessionMemory sessionMemory) {
         this(storage, llm, embedding, context, security, web, mcp, agent, memory, compact,
-                sessionMemory, null, null, null);
+                sessionMemory, null, null, null, null);
     }
 
     public record Storage(String root) {
@@ -97,6 +104,17 @@ public record MarkAgentProperties(
     public record Inbox(Boolean crossUser) {
         public Inbox {
             crossUser = crossUser == null ? Boolean.TRUE : crossUser;
+        }
+    }
+
+    /** 文档库：MinerU 解析服务（WSL 容器 file-parse-server）接入参数与解析并发（非法值回退默认）。
+     *  overall-timeout-minutes 兜底大文件：CPU 小模型解析数百页财报可耗时数十分钟 */
+    public record Docs(String mineruUrl, int waitTimeoutSeconds, int overallTimeoutMinutes, int parseConcurrency) {
+        public Docs {
+            mineruUrl = mineruUrl == null || mineruUrl.isBlank() ? "http://127.0.0.1:8003" : mineruUrl;
+            waitTimeoutSeconds = waitTimeoutSeconds <= 0 ? 180 : waitTimeoutSeconds;
+            overallTimeoutMinutes = overallTimeoutMinutes <= 0 ? 60 : overallTimeoutMinutes;
+            parseConcurrency = parseConcurrency <= 0 ? 2 : Math.min(parseConcurrency, 8);
         }
     }
 

@@ -287,6 +287,110 @@ body::after {
   text-shadow: 0 0 10px rgba(57, 230, 255, 0.5);
 }
 
+/* ============ 侧边栏历史对话面板（豆包/千问/Codex 式） ============ */
+.session-panel {
+  flex: 1;
+  min-height: 0; /* 关键：占满菜单下方剩余空间，内部列表独立滚动（滑动窗口） */
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line-1);
+  margin-top: 8px;
+  padding: 10px 8px 8px;
+  overflow: hidden;
+}
+.session-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.session-panel-head > .ant-btn-primary {
+  flex: 1;
+}
+.session-panel-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--tx-3);
+  margin: 2px 4px 6px;
+  text-transform: uppercase;
+}
+.session-panel-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+.session-panel-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+.session-panel-list .ant-empty {
+  margin: 28px 0;
+}
+.session-panel-list .ant-empty-image {
+  height: 32px;
+}
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  clip-path: var(--clip-sm);
+  transition: background 0.15s;
+}
+.session-item:hover {
+  background: var(--bg-3);
+}
+.session-item.active {
+  background: rgba(57, 230, 255, 0.12);
+  border-color: var(--line-3);
+}
+.session-item-icon {
+  color: var(--tx-3);
+  font-size: 13px;
+  flex: none;
+}
+.session-item.active .session-item-icon {
+  color: var(--cyan);
+}
+.session-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.session-item-title {
+  font-size: 12.5px;
+  color: var(--tx-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item.active .session-item-title {
+  color: var(--cyan);
+}
+.session-item-time {
+  font-size: 11px;
+  color: var(--tx-3);
+}
+.session-item-del {
+  flex: none;
+  visibility: hidden;
+  color: var(--tx-3) !important;
+  clip-path: none;
+}
+.session-item:hover .session-item-del {
+  visibility: visible;
+}
+.session-item-del:hover {
+  color: var(--red) !important;
+}
+
 /* ============ Table ============ */
 .ant-table {
   background: transparent;

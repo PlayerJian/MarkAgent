@@ -90,13 +90,16 @@ public final class MarkAgentToolRegistrar {
     }
 
     private static ToolResultBlock invoke(Object target, Method method, Tool tool, ToolCallParam param) {
-        // 工具在 ToolExecutor 的独立线程执行，ThreadLocal 传不到；taskId/userId 经 RuntimeContext 传递后注入
+        // 工具在 ToolExecutor 的独立线程执行，ThreadLocal 传不到；taskId/userId/docLibraryId 经 RuntimeContext 传递后注入
         if (param.getRuntimeContext() != null) {
             if (param.getRuntimeContext().get("taskId") instanceof String taskId) {
                 com.markagent.agent.model.TaskIdContext.set(taskId);
             }
             if (param.getRuntimeContext().getUserId() != null) {
                 com.markagent.agent.model.TaskUserContext.set(param.getRuntimeContext().getUserId());
+            }
+            if (param.getRuntimeContext().get("docLibraryId") instanceof String libraryId) {
+                com.markagent.agent.model.TaskDocContext.set(libraryId);
             }
         }
         long startedNanos = System.nanoTime();
@@ -130,6 +133,7 @@ public final class MarkAgentToolRegistrar {
             }
             com.markagent.agent.model.TaskIdContext.clear();
             com.markagent.agent.model.TaskUserContext.clear();
+            com.markagent.agent.model.TaskDocContext.clear();
         }
         String callId = param.getToolUseBlock() == null ? tool.name() : param.getToolUseBlock().getId();
         return new ToolResultBlock(callId, tool.name(), TextBlock.builder().text(text).build());

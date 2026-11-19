@@ -43,4 +43,12 @@ public final class Ids {
     public static String agent() {
         return next("a_");
     }
+
+    public static String docLibrary() {
+        return next("dl_");
+    }
+
+    public static String doc() {
+        return next("d_");
+    }
 }

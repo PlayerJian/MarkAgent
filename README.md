@@ -11,6 +11,7 @@
 | Tool Use | 内置 calculator / now / http_get / http_post / **web_search**（自研免 key 搜索：Bing→DuckDuckGo 自动降级，支持域名过滤）/ **web_fetch**（抓取网页按 prompt 提炼：HTML→Markdown、跨域重定向控制、15 分钟缓存）/ file_write / file_read / plan / memory / skill / spawn_agent + MCP 动态注册 |
 | Memory | 会话态（AgentScope AgentStateStore 持久化）+ 长期记忆（MEMORY.md / 日记 / 向量检索三档降级）+ 上下文压缩（75% 阈值） |
 | Multi-Agent | `spawn_agent` 派生专家 worker（独立 ReActAgent，事件扇出 AGENT_MSG/AGENT_DONE） |
+| 文档库 | 上传文档（multipart 200MB）→ MinerU 解析（WSL 容器，见 `deploy/mineru/`）→ 分块 + 倒排索引；`doc_search`/`doc_read` 工具检索，带「文件名 页码」引用；会话可绑定文档库（临时库随会话即焚） |
 | 任务持久化 | JSON 文件存储（TaskStore/SessionStore/CheckpointStore，接口抽象可换 JDBC） |
 | 断点恢复 | 任务 pause/resume/stop；AgentScope 状态按 (userId, sessionId) 落盘，**服务重启后可继续** |
 | Skills | `skills/` 目录 + SKILL.md frontmatter，`skill_invoke` 按需加载（示例：report-writer、weekly-digest） |
@@ -65,6 +66,7 @@ java -jar server/target/markagent-server-0.1.0.jar   # 建议在期望的 data/ 
 | `markagent.security.jwt.secret` | 默认随机（每次重启失效）；固定密钥需设 `MARKAGENT_JWT_SECRET` |
 | `markagent.embedding.enabled` | 无 embedding key 时置 false → 关键词检索降级 |
 | `markagent.mcp.stdio-timeout-ms` | MCP stdio 工具调用超时 |
+| `markagent.docs.*` | MinerU 解析服务地址（`MINERU_FILE_PARSE_URL`）/ 超时 / 解析并发 |
 
 ## 数据布局（`data/`）
 
@@ -75,6 +77,7 @@ agentscope/               # AgentScope 状态（u_*/s_*/agent_state.json）
 workspace/{taskId}/       # MEMORY.md / memory/日记 / plans/PLAN.md / 工具产物
 skills/                   # 每技能一目录 + SKILL.md
 events/{taskId}.jsonl     # SSE 事件流水（seq 自增，断线回放锚点）
+docs/                     # 文档库：上传文件、解析分块、倒排索引（files/ + indexes/）
 mcp.json  settings.json
 ```
 
@@ -85,6 +88,7 @@ mcp.json  settings.json
 - 任务：`POST /chat`（立即返回 taskId）→ `GET /tasks/{id}/stream?afterSeq=`（SSE）；`GET /tasks`、`GET /tasks/{id}`、`POST /tasks/{id}/pause|resume|stop`
 - 记忆：`POST /sessions/{id}/memory/search|save`
 - 技能：`GET|POST /skills`；MCP：`GET|POST|PUT|DELETE /mcp/servers[/{id}]`；设置：`GET|PUT /settings/llm`
+- 文档库：`POST|GET|DELETE /docs/libraries[/{id}]`、`POST /docs/temp-uploads`、`POST|GET /docs/libraries/{id}/documents`、`GET|POST /docs/documents/{id}[/retry]|DELETE`
 
 SSE 事件类型：`meta | text | reasoning | tool_start | tool_end | plan_update | agent_spawn | agent_msg | agent_done | memory_update | token | checkpoint | paused | error | done`（`id: <seq>` 为回放锚点）。
 

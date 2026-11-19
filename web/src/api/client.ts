@@ -22,10 +22,10 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  }
+  // FormData 上传：Content-Type 交由浏览器自动携带 multipart boundary
+  const isForm = options.body instanceof FormData
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string>) }
+  if (!isForm) headers['Content-Type'] = 'application/json'
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
 
@@ -45,8 +45,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     throw new ApiError(body.code ?? 'HTTP_' + res.status, body.message ?? res.statusText, res.status)
   }
   if (res.status === 204) return undefined as T
-  return res.json()
+  // void 端点（如 DELETE）返回 200 + 空 body：按 204 语义处理，避免 JSON 解析空响应报错
+  const text = await res.text()
+  if (!text) return undefined as T
+  return JSON.parse(text) as T
 }
+
+/** multipart 上传（文件/表单字段） */
+export const upload = <T>(path: string, formData: FormData) =>
+  api<T>(path, { method: 'POST', body: formData })
 
 export const post = <T>(path: string, body?: unknown) =>
   api<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })

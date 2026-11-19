@@ -93,6 +93,9 @@ public class AgentChatService {
     private final SessionInboxService inbox;
     private final AtomicInteger runningTasks;
     private final MarkAgentProperties properties;
+    private final com.markagent.store.DocLibraryStore docLibraryStore;
+    private final com.markagent.docs.DocStorageLayout docLayout;
+    private final com.markagent.docs.DocLibraryService docLibraryService;
 
     /** taskId → RuntimeContext（pause/resume/stop 控制面用） */
     private final Map<String, RuntimeContext> contexts = new ConcurrentHashMap<>();
@@ -119,7 +122,10 @@ public class AgentChatService {
             AutoCompactService autoCompact,
             SessionMemoryService sessionMemory,
             AskRegistry askRegistry,
-            SessionInboxService inbox) {
+            SessionInboxService inbox,
+            com.markagent.store.DocLibraryStore docLibraryStore,
+            com.markagent.docs.DocStorageLayout docLayout,
+            com.markagent.docs.DocLibraryService docLibraryService) {
         this.agent = agent;
         this.taskStore = taskStore;
         this.checkpointStore = checkpointStore;
@@ -135,6 +141,9 @@ public class AgentChatService {
         this.teamTool = teamTool;
         this.askRegistry = askRegistry;
         this.inbox = inbox;
+        this.docLibraryStore = docLibraryStore;
+        this.docLayout = docLayout;
+        this.docLibraryService = docLibraryService;
         // 框架内部 fire-and-forget 订阅的错误会被 reactor 静默丢弃，落日志便于追查静默死亡
         Hooks.onErrorDropped(error -> log.error("Reactor 丢弃未处理错误: {}", error.toString(), error));
     }
@@ -146,40 +155,85 @@ public class AgentChatService {
         String sessionId = (request.sessionId() == null || request.sessionId().isBlank())
                 ? Ids.session() : request.sessionId();
         // 未指定模型时用 yml 的 markagent.llm.default-model（如 deepseek-flash）
-        TaskOptions options = request.options() == null ? TaskOptions.defaults() : request.options();
-        if (options.model() == null || options.model().isBlank()) {
-            options = new TaskOptions(properties.llm().defaultModel(), options.planning(),
-                    options.thinking(), options.workers());
-        }
-        String taskId = Ids.task();
         String now = Instant.now().toString();
-
-        TaskRecord record = new TaskRecord(taskId, sessionId, userId, request.goal(),
-                TaskStatus.RUNNING, null, List.of(), options, now, now, null);
-        taskStore.save(record);
+        String requestedBinding = resolveDocLibrary(request.source(), userId);
 
         // 会话记录（仅 UI 展示层；标题取首个任务描述前 40 字，后续任务只刷新 updatedAt 供列表排序）。
         // messages 回填：每条任务开始追加一条 user 消息（数据层补全，暂无 UI 消费方）
+        // 文档检索绑定提升到会话级：source 显式 > 会话既有继承（多轮问答后续轮次无需再传）；
+        // 会话内换新单文件时旧临时库即焚。
         ChatMessage userMessage = new ChatMessage(Ids.message(), "user", request.goal(), null, List.of(), now);
+        final String[] bindingRef = new String[1];
         sessionStore.get(userId, sessionId).ifPresentOrElse(
                 existing -> {
+                    String binding = requestedBinding != null ? requestedBinding : existing.docLibraryId();
+                    if (requestedBinding != null && existing.docLibraryId() != null
+                            && existing.docLibraryId().startsWith("up_")
+                            && !existing.docLibraryId().equals(requestedBinding)) {
+                        docLibraryService.deleteLibrary(userId, existing.docLibraryId());
+                    }
+                    bindingRef[0] = binding;
                     List<ChatMessage> messages = new ArrayList<>();
                     if (existing.messages() != null) {
                         messages.addAll(existing.messages());
                     }
                     messages.add(userMessage);
                     sessionStore.save(new SessionRecord(existing.id(), existing.userId(),
-                            existing.title(), messages, existing.createdAt(), now));
+                            existing.title(), messages, existing.createdAt(), now, binding));
                 },
                 () -> {
+                    bindingRef[0] = requestedBinding;
                     String title = request.goal().length() > 40 ? request.goal().substring(0, 40) + "…" : request.goal();
-                    sessionStore.save(new SessionRecord(sessionId, userId, title, List.of(userMessage), now, now));
+                    sessionStore.save(new SessionRecord(sessionId, userId, title, List.of(userMessage), now, now,
+                            requestedBinding));
                 });
+        String docLibraryId = bindingRef[0];
+
+        TaskOptions options = request.options() == null ? TaskOptions.defaults() : request.options();
+        if (options.model() == null || options.model().isBlank()) {
+            options = new TaskOptions(properties.llm().defaultModel(), options.planning(),
+                    options.thinking(), options.workers(), docLibraryId);
+        } else if (docLibraryId != null && !docLibraryId.equals(options.docLibraryId())) {
+            options = new TaskOptions(options.model(), options.planning(), options.thinking(),
+                    options.workers(), docLibraryId);
+        }
+        String taskId = Ids.task();
+
+        TaskRecord record = new TaskRecord(taskId, sessionId, userId, request.goal(),
+                TaskStatus.RUNNING, null, List.of(), options, now, now, null);
+        taskStore.save(record);
 
         runningTasks.incrementAndGet();
 
         Thread.ofVirtual().name("agent-task-" + taskId).start(() -> runTask(record, false));
         return new ChatAccepted(taskId, sessionId);
+    }
+
+    /** 检索来源校验：libraryId 与 uploadId 互斥；不存在或非本人一律 404（不泄露存在性）；未带来源返回 null */
+    private String resolveDocLibrary(com.markagent.common.dto.DocSource source, String userId) {
+        if (source == null) {
+            return null;
+        }
+        boolean hasLibrary = source.libraryId() != null && !source.libraryId().isBlank();
+        boolean hasUpload = source.uploadId() != null && !source.uploadId().isBlank();
+        if (hasLibrary == hasUpload) {
+            throw com.markagent.api.GlobalExceptionHandler.badRequest(
+                    "source.libraryId 与 source.uploadId 互斥，必须且只能提供一个");
+        }
+        if (hasLibrary) {
+            var library = docLibraryStore.get(source.libraryId())
+                    .orElseThrow(() -> com.markagent.api.GlobalExceptionHandler.notFound("文档库 " + source.libraryId()));
+            if (!library.userId().equals(userId)) {
+                throw com.markagent.api.GlobalExceptionHandler.notFound("文档库 " + source.libraryId());
+            }
+            return source.libraryId();
+        }
+        // 单文件：临时上传须存在（目录按 userId 隔离，他人 uploadId 不可见）；库/文档记录在 runTask 建
+        if (!java.nio.file.Files.isDirectory(
+                docLayout.tmpUploadDir(userId, source.uploadId()))) {
+            throw com.markagent.api.GlobalExceptionHandler.notFound("临时上传 " + source.uploadId());
+        }
+        return source.uploadId();
     }
 
     /** 执行（虚拟线程）。resume=true 时附「继续执行」指令，agent 从持久化状态续跑 */
@@ -190,6 +244,16 @@ public class AgentChatService {
         TaskThinkingContext.set(Boolean.TRUE.equals(task.options().thinking()));
         // 任务级 taskId：工具（plan_write/file_*）经 ThreadLocal 定位任务并广播事件
         TaskIdContext.set(task.id());
+        // 单文件问答（up_ 前缀临时库）：先等解析+索引就绪再启动 agent；失败即任务失败
+        if (task.options().docLibraryId() != null
+                && task.options().docLibraryId().startsWith("up_")) {
+            try {
+                docLibraryService.prepareTempLibrary(task.userId(), task.options().docLibraryId());
+            } catch (Exception e) {
+                failTask(task, e);
+                return;
+            }
+        }
         broadcast(task.id(), SseEventType.META, Map.of(
                 "sessionId", task.sessionId(),
                 "userId", task.userId(),
@@ -203,8 +267,11 @@ public class AgentChatService {
                     .sessionId(task.sessionId())
                     .userId(task.userId())
                     .build();
-            // taskId 经 RuntimeContext 传进工具执行线程（ToolExecutor 独立线程池，ThreadLocal 不可达）
+            // taskId/docLibraryId 经 RuntimeContext 传进工具执行线程（ToolExecutor 独立线程池，ThreadLocal 不可达）
             rt.put("taskId", task.id());
+            if (task.options().docLibraryId() != null) {
+                rt.put("docLibraryId", task.options().docLibraryId());
+            }
             contexts.put(task.id(), rt);
             pausedFlags.computeIfAbsent(task.id(), k -> new AtomicBoolean(false));
 
@@ -217,6 +284,13 @@ public class AgentChatService {
                 String assembled = promptAssembler.assemble(task.userId(), task.sessionId(), task.goal());
                 String goal = assembled.isBlank() ? task.goal()
                         : assembled + "\n## 用户任务\n" + task.goal();
+                // 文档库绑定告知：让 agent 明确知道本会话已绑定文档库（否则会假设没有资料、连 doc_search 都不调用）
+                if (task.options().docLibraryId() != null) {
+                    String binding = docLibraryService.describeBinding(task.userId(), task.options().docLibraryId());
+                    if (binding != null) {
+                        goal = binding + "\n" + goal;
+                    }
+                }
                 // 跨会话信箱：投递到本会话的未读消息注入首条 user 消息（订阅成功后推进投递游标）
                 List<InboxMessage> inboxMessages = inbox.pending(task.userId(), task.sessionId());
                 if (!inboxMessages.isEmpty()) {
@@ -422,7 +496,8 @@ public class AgentChatService {
                 }
                 messages.add(message);
                 sessionStore.save(new SessionRecord(existing.id(), existing.userId(),
-                        existing.title(), messages, existing.createdAt(), existing.updatedAt()));
+                        existing.title(), messages, existing.createdAt(), existing.updatedAt(),
+                        existing.docLibraryId()));
             });
         } catch (Exception e) {
             log.warn("会话历史回填失败 task={}: {}", task.id(), e.getMessage());

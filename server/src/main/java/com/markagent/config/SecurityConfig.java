@@ -47,7 +47,7 @@ public class SecurityConfig {
                         .requestMatchers("/", "/index.html", "/favicon.svg", "/icons.svg",
                                 "/pwa-*.png", "/manifest.webmanifest", "/sw.js", "/workbox-*.js",
                                 "/assets/**", "/login", "/tasks", "/tasks/*", "/memory", "/skills",
-                                "/mcp", "/settings",
+                                "/mcp", "/docs", "/settings",
                                 // 登录/注册放行；/auth/me 需认证（前端启动校验 token 用，
                                 // 无效 token → 401 → 前端自动跳登录）
                                 "/api/v1/auth/login", "/api/v1/auth/register",

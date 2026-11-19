@@ -8,6 +8,7 @@ import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -50,6 +51,8 @@ public class AskUserTool {
     private final int defaultTimeoutSeconds;
     private final boolean autoApprove;
 
+    /** 多构造器（另有测试入口）时必须显式标注装配构造器，否则 Spring 7 报「无默认构造器」 */
+    @Autowired
     public AskUserTool(AskRegistry asks, SseEmitterRegistry registry,
             @Value("${markagent.ask-user.default-timeout-seconds:120}") int defaultTimeoutSeconds,
             @Value("${markagent.ask-user.auto-approve:false}") boolean autoApprove) {

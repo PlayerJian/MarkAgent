@@ -1,0 +1,47 @@
+# MinerU 解析服务（方案B：远程 VLM）
+# 复用现有 vLLM 容器（mineru-openai-server:30000，MinerU2.5-Pro-2605-1.2B）
+# 部署：docker compose -f deploy/mineru/docker-compose.yml up -d
+services:
+  api-server:
+    image: mineru-parse:4
+    container_name: mineru-api-server
+    command: mineru-kit api-server --host 0.0.0.0 --port 8000 --tier standard
+    environment:
+      MINERU_MODEL_SOURCE: modelscope
+      MINERU_MODEL_SMALL_BACKEND: onnx
+      MINERU_MODEL_ONNX_DEVICE: cpu
+      MINERU_MODEL_VLM_SERVER_URL: http://mineru-openai-server:30000/v1
+    ports:
+      - "127.0.0.1:8000:8000"   # 调试用；file-parse 经 docker 网络直连
+    volumes:
+      - mineru-home:/data/mineru-home
+    networks:
+      - mineru
+    restart: unless-stopped
+
+  file-parse-server:
+    image: mineru-parse:4
+    container_name: mineru-file-parse-server
+    # 包装服务不加载模型：上游 Tasks API 基地址指 api-server
+    command: mineru-kit file-parse-server --api-url http://mineru-api-server:8000 --host 0.0.0.0 --port 8003 --state-dir /data/file-parse
+    environment:
+      MINERU_API_URL: http://mineru-api-server:8000
+    ports:
+      - "8003:8003"             # Windows localhost:8003（Docker Desktop 自动转发）
+    volumes:
+      - file-parse-state:/data/file-parse
+    depends_on:
+      - api-server
+    networks:
+      - mineru
+    restart: unless-stopped
+
+volumes:
+  mineru-home:
+  file-parse-state:
+
+networks:
+  mineru:
+    # 加入 vLLM 容器所在网络，容器名直连 mineru-openai-server
+    external: true
+    name: mineru_default

@@ -96,7 +96,8 @@ public class SpringAiModelBridge implements Model {
         return chatModel.stream(prompt)
                 .map(this::toAgentScopeResponse)
                 .filter(r -> r.getContent() != null && !r.getContent().isEmpty())
-                .onErrorMap(e -> new IllegalStateException("DeepSeek 模型调用失败: " + e.getMessage(), e));
+                .onErrorMap(e -> new IllegalStateException("DeepSeek 模型调用失败: " + apiErrorDetail(e)
+                        + " | 模型: " + modelName, e));
     }
 
     /**
@@ -285,12 +286,44 @@ public class SpringAiModelBridge implements Model {
     private Flux<ChatResponse> streamViaDeepSeekApi(List<Msg> messages, List<ToolSchema> toolSchemas,
             GenerateOptions options, DeepSeekApi.ChatModel requestedModel) {
         DeepSeekApi.ChatCompletionRequest request = buildRawRequest(messages, toolSchemas, options, requestedModel);
+        if (log.isDebugEnabled()) {
+            log.debug("DeepSeek 原始请求: {}", safeJson(request));
+        }
         Map<Integer, String[]> toolMeta = new ConcurrentHashMap<>(); // index → [id, name]
         Map<Integer, StringBuilder> toolArgBufs = new ConcurrentHashMap<>(); // index → 参数分片累积
         return deepSeekApi.chatCompletionStream(request)
                 .map(chunk -> toAgentScopeResponse(chunk, toolMeta, toolArgBufs))
                 .filter(r -> r.getContent() != null && !r.getContent().isEmpty())
-                .onErrorMap(e -> new IllegalStateException("DeepSeek 模型调用失败: " + e.getMessage(), e));
+                .onErrorMap(e -> new IllegalStateException("DeepSeek 模型调用失败: " + apiErrorDetail(e)
+                        + " | 请求: " + truncate(safeJson(request), 2000), e));
+    }
+
+    /** API 错误详情：400/422 的拒绝原因只在响应体里，默认 getMessage 仅状态行 */
+    private static String apiErrorDetail(Throwable error) {
+        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        Throwable cur = error;
+        while (cur != null) {
+            if (cur instanceof org.springframework.web.reactive.function.client.WebClientResponseException w) {
+                String body = w.getResponseBodyAsString();
+                if (body != null && !body.isBlank()) {
+                    return message + " | API响应体: " + truncate(body, 1000);
+                }
+            }
+            cur = cur.getCause();
+        }
+        return message;
+    }
+
+    private String safeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
+    }
+
+    private static String truncate(String text, int max) {
+        return text.length() > max ? text.substring(0, max) + "…" : text;
     }
 
     private DeepSeekApi.ChatCompletionRequest buildRawRequest(List<Msg> messages, List<ToolSchema> toolSchemas,
@@ -376,9 +409,11 @@ public class SpringAiModelBridge implements Model {
         List<DeepSeekApi.FunctionTool> tools = new ArrayList<>(toolSchemas.size());
         for (ToolSchema schema : toolSchemas) {
             Map<String, Object> parameters = schema.getParameters() == null ? Map.of() : schema.getParameters();
+            // FunctionTool.Function 字段序为 (description, name, parameters, strict)——描述传第一位，否则
+            // 中文描述会落进 name 字段触发 API 400（name 只允许 [a-zA-Z0-9_-]）
             tools.add(new DeepSeekApi.FunctionTool(new DeepSeekApi.FunctionTool.Function(
-                    schema.getName(), schema.getDescription() == null ? "" : schema.getDescription(),
-                    parameters, null)));
+                    schema.getDescription() == null ? "" : schema.getDescription(),
+                    schema.getName(), parameters, null)));
         }
         return tools;
     }

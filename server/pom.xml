@@ -80,6 +80,18 @@
             <artifactId>jjwt-api</artifactId>
             <version>${jjwt.version}</version>
         </dependency>
+
+        <!-- 文档库块级倒排索引：内嵌 Lucene（MMapDirectory 落盘，OS page cache 管热数据） -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>10.2.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-common</artifactId>
+            <version>10.2.1</version>
+        </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-impl</artifactId>
@@ -137,6 +149,11 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Lucene 10 的 VectorizationProvider：启用 JDK Vector API（SIMD 打分加速），
+                         不加则回退标量实现（功能不变，启动打 WARN） -->
+                    <jvmArguments>--add-modules jdk.incubator.vector</jvmArguments>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

@@ -1,9 +1,13 @@
 server:
-  port: 8080
+  port: 8090
 
 spring:
   application:
     name: markagent-server
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 800MB
   autoconfigure:
     exclude:
       # 模型统一由我方条件化装配（LlmConfig），排除无 key 也会强制创建 Bean 的自动装配
@@ -38,7 +42,14 @@ agentscope:
 
 markagent:
   storage:
-    root: ./data
+    # 绝对路径固定数据目录：相对路径会随启动工作目录漂移（曾导致从仓库根启动读到另一棵数据树）
+    root: D:/workspace/MarkAgent/data
+  # 文档库：MinerU 解析服务（WSL 容器 file-parse-server）接入参数与解析并发
+  docs:
+    mineru-url: ${MINERU_FILE_PARSE_URL:http://127.0.0.1:8003}
+    wait-timeout-seconds: 180      # file_parse 单次等待窗口，超时转轮询
+    overall-timeout-minutes: 60    # 含轮询的总超时（CPU 小模型解析数百页财报可达数十分钟）
+    parse-concurrency: 2           # GPU 容器单队列，并发压到 1-2
   agent:
     name: MarkAgent
     sys-prompt: |
@@ -52,6 +63,7 @@ markagent:
       - 任务开始前先 memory_search 检索用户长期记忆；发现用户偏好、重要约定、值得跨会话记住的结论时用 memory_save 写入长期记忆。
       - 需要分工协作的复杂任务（调研+写作、多模块开发等）用 spawn_agent 派生专家 worker 并行执行子任务，然后汇总各 worker 结论形成终稿；简单任务不必派生。
       - 在任务工作区内搜索文件内容用 file_grep（正则 + glob 过滤），按文件名模式找文件用 file_glob；修改文件用 file_edit 精确替换（缺省唯一匹配，提供足够长的原文片段作上下文），不要用 file_write 整体重写大文件。
+      - 任务绑定了文档库（检索上传的文档）时用 doc_search 检索内容块：query 为空格分隔的关键词（如「商誉 减值」），返回命中块与前后邻块，带「文件名 页码」引用；结果不足时换关键词重试，或用 doc_read 以命中块为中心扩窗（around_block + window，上下文不够就调大 window 重读）、按页或块区间读更多原文，再基于原文作答。
       - 执行危险或不可逆操作（删除数据、对外发送消息、大范围修改、代表用户做决策）前用 ask_user 征得用户同意：question 自包含并说明风险与代价，options 给出明确选项；用户拒绝或超时未确认时停止该操作并向用户说明。
       - 需要与其他会话的 agent 协作（跨任务交接、通知）时用 send_message 向目标会话投递消息。
       - 后台派生的 worker 可用 agent_list 查看全体状态，用 agent_stop 停止不再需要的 worker。

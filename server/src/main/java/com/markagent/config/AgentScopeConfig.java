@@ -74,6 +74,7 @@ public class AgentScopeConfig {
             com.markagent.tools.McpResourceTool mcpResource,
             com.markagent.cron.CronTool cronTool,
             com.markagent.integration.IntegrationTool integrationTool,
+            com.markagent.tools.DocQueryTool docQuery,
             com.markagent.mcp.McpServerManager mcpManager) {
         Toolkit toolkit = new Toolkit();
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, calculator);
@@ -93,6 +94,7 @@ public class AgentScopeConfig {
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, mcpResource);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, cronTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, integrationTool);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, docQuery);
         // MCP 启动期注册：ReActAgent.Builder 深拷贝 toolkit，必须在 agent build 前完成
         mcpManager.attach(toolkit);
         return toolkit;
