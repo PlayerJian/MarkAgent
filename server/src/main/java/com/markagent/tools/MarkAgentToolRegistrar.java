@@ -75,8 +75,22 @@ public final class MarkAgentToolRegistrar {
         };
     }
 
+    /** 工具调用捕获监听（audit 模块注册；null 时不做任何捕获）。任何监听异常绝不影响工具执行。 */
+    @FunctionalInterface
+    public interface ToolCallCaptureListener {
+        void onToolCall(String taskId, String userId, String toolName, String callId,
+                Map<String, Object> args, String resultText, long durationMs);
+    }
+
+    private static volatile ToolCallCaptureListener captureListener;
+
+    /** 注册工具调用捕获监听（audit 模块装配时调用；重复注册覆盖旧监听） */
+    public static void setToolCallCaptureListener(ToolCallCaptureListener listener) {
+        captureListener = listener;
+    }
+
     private static ToolResultBlock invoke(Object target, Method method, Tool tool, ToolCallParam param) {
-        // 工具在 ToolExecutor 的独立线程执行，ThreadLocal 传不到；taskId/userId 经 RuntimeContext 传递后注入
+        // 工具在 ToolExecutor 的独立线程执行，ThreadLocal 传不到；taskId/userId/docLibraryId 经 RuntimeContext 传递后注入
         if (param.getRuntimeContext() != null) {
             if (param.getRuntimeContext().get("taskId") instanceof String taskId) {
                 com.markagent.agent.model.TaskIdContext.set(taskId);
@@ -84,8 +98,12 @@ public final class MarkAgentToolRegistrar {
             if (param.getRuntimeContext().getUserId() != null) {
                 com.markagent.agent.model.TaskUserContext.set(param.getRuntimeContext().getUserId());
             }
+            if (param.getRuntimeContext().get("docLibraryId") instanceof String libraryId) {
+                com.markagent.agent.model.TaskDocContext.set(libraryId);
+            }
         }
-        String text;
+        long startedNanos = System.nanoTime();
+        String text = "";
         try {
             method.setAccessible(true);
             Object[] args = convertArgs(method, param.getInput());
@@ -97,8 +115,25 @@ public final class MarkAgentToolRegistrar {
         } catch (Exception e) {
             text = "错误：" + e.getMessage();
         } finally {
+            // 审计钩子：唯一能同时拿到「入参 + 结果 + 耗时」的位置；须在 ThreadLocal 清理前捕获 taskId/userId
+            ToolCallCaptureListener listener = captureListener;
+            if (listener != null) {
+                try {
+                    listener.onToolCall(
+                            com.markagent.agent.model.TaskIdContext.get(),
+                            com.markagent.agent.model.TaskUserContext.get(),
+                            tool.name(),
+                            param.getToolUseBlock() == null ? tool.name() : param.getToolUseBlock().getId(),
+                            param.getInput(),
+                            text,
+                            (System.nanoTime() - startedNanos) / 1_000_000);
+                } catch (Exception ignored) {
+                    // 审计失败绝不影响工具结果
+                }
+            }
             com.markagent.agent.model.TaskIdContext.clear();
             com.markagent.agent.model.TaskUserContext.clear();
+            com.markagent.agent.model.TaskDocContext.clear();
         }
         String callId = param.getToolUseBlock() == null ? tool.name() : param.getToolUseBlock().getId();
         return new ToolResultBlock(callId, tool.name(), TextBlock.builder().text(text).build());
@@ -138,13 +173,13 @@ public final class MarkAgentToolRegistrar {
         return "string";
     }
 
-    /** 数组参数补 items 声明（如 plan_write 的 steps） */
+    /** 数组参数补 items 声明（如 plan_write 的 steps → object、web_search 的域名列表 → string） */
     private static Map<String, Object> buildProp(Parameter parameter) {
         ToolParam toolParam = parameter.getAnnotation(ToolParam.class);
         Map<String, Object> prop = new LinkedHashMap<>();
         if (List.class.isAssignableFrom(parameter.getType())) {
             prop.put("type", "array");
-            prop.put("items", Map.of("type", "object"));
+            prop.put("items", Map.of("type", listItemType(parameter)));
         } else if (Map.class.isAssignableFrom(parameter.getType())) {
             prop.put("type", "object");
         } else {
@@ -154,6 +189,25 @@ public final class MarkAgentToolRegistrar {
             prop.put("description", toolParam.description());
         }
         return prop;
+    }
+
+    /**
+     * List 参数的元素 schema 类型：泛型擦除拿不到元素类，从 ParameterizedType 读实际类型参数——
+     * List&lt;String&gt; → string，List&lt;Integer&gt; 等 → number，其余（含无法解析的泛型）→ object。
+     */
+    private static String listItemType(Parameter parameter) {
+        java.lang.reflect.Type generic = parameter.getParameterizedType();
+        if (generic instanceof java.lang.reflect.ParameterizedType parameterized) {
+            java.lang.reflect.Type[] args = parameterized.getActualTypeArguments();
+            if (args.length == 1 && args[0] == String.class) {
+                return "string";
+            }
+            if (args.length == 1 && args[0] instanceof Class<?> clazz
+                    && Number.class.isAssignableFrom(clazz)) {
+                return "number";
+            }
+        }
+        return "object";
     }
 
     /** 按参数名从工具输入取值并做基本类型转换；无 @ToolParam 的参数置 null */

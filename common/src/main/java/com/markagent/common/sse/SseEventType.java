@@ -21,6 +21,8 @@ public enum SseEventType {
     AGENT_SPAWN,
     /** agent 间消息 {fromId, fromName, toId, toName, content} */
     AGENT_MSG,
+    /** 跨会话消息送达 {fromTaskId, sessionId, content} */
+    SESSION_MSG,
     /** agent 完成 {agentId, summary} */
     AGENT_DONE,
     /** 记忆变更 {op, target} */
@@ -31,6 +33,10 @@ public enum SseEventType {
     CHECKPOINT,
     /** 任务暂停 {checkpointId} */
     PAUSED,
+    /** 人工审批请求 {callId, question, options, timeoutSeconds} */
+    ASK_USER,
+    /** 上下文压缩 {phase: planned|completed|failed, ...} */
+    COMPACT,
     /** 错误 {code, message, retriable} */
     ERROR,
     /** 终态 {status, summary, usage} */

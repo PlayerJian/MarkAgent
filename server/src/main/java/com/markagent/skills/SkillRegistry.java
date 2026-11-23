@@ -21,8 +21,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 /**
- * 技能仓库：扫描 data/skills/{name}/SKILL.md（frontmatter: name/description/version），
- * 提供列表/读取/创建/删除/重载。加载后缓存于内存，文件变动经 reload 生效。
+ * 技能仓库：扫描 data/skills/{name}/SKILL.md（frontmatter: name/description/version/when_to_use/
+ * allowed_tools/user_invocable/shell/paths/model），提供列表/读取/创建/删除/重载。
+ * 加载后缓存于内存，文件变动经 reload 生效。
  * 技能内容通过 sys prompt 清单 + skill_invoke 工具暴露给 agent。
  */
 @Component
@@ -78,29 +79,52 @@ public class SkillRegistry {
         log.info("技能仓库重载完成：{} 个技能", skills.size());
     }
 
-    /** 解析单个 SKILL.md：--- 包围的 frontmatter + 正文 */
+    /** 解析单个 SKILL.md：--- 包围的 frontmatter + 正文。
+     *  无 frontmatter 或仅含旧字段（name/description/version）的技能完全兼容，
+     *  新字段（when_to_use 等）缺省时取默认值。 */
     static LoadedSkill load(Path skillMd) throws IOException {
         String raw = Files.readString(skillMd, StandardCharsets.UTF_8);
         String dirName = skillMd.getParent().getFileName().toString();
         String name = dirName;
         String description = "";
         String version = "1.0.0";
+        String whenToUse = "";
+        List<String> allowedTools = List.of();
+        boolean userInvocable = true;
+        String shell = null;
+        List<String> paths = List.of();
+        String model = null;
         String content = raw;
         if (raw.startsWith("---")) {
             int end = raw.indexOf("\n---", 3);
             if (end > 0) {
                 String frontmatter = raw.substring(3, end);
-                for (String line : frontmatter.split("\n")) {
-                    int colon = line.indexOf(':');
+                String currentKey = null;
+                for (String rawLine : frontmatter.split("\n")) {
+                    // 多行值：以空格/制表符开头的后续行并入上一字段（如 when_to_use）
+                    if (rawLine.startsWith(" ") || rawLine.startsWith("\t")) {
+                        if ("when_to_use".equals(currentKey)) {
+                            whenToUse += " " + rawLine.trim();
+                        }
+                        continue;
+                    }
+                    int colon = rawLine.indexOf(':');
                     if (colon <= 0) {
                         continue;
                     }
-                    String key = line.substring(0, colon).trim();
-                    String value = line.substring(colon + 1).trim();
+                    String key = rawLine.substring(0, colon).trim();
+                    String value = rawLine.substring(colon + 1).trim();
+                    currentKey = key;
                     switch (key) {
                         case "name" -> name = value;
                         case "description" -> description = value;
                         case "version" -> version = value;
+                        case "when_to_use" -> whenToUse = value;
+                        case "allowed_tools" -> allowedTools = parseList(value);
+                        case "user_invocable" -> userInvocable = !"false".equalsIgnoreCase(value);
+                        case "shell" -> shell = value.isEmpty() ? null : value;
+                        case "paths" -> paths = parseList(value);
+                        case "model" -> model = value.isEmpty() ? null : value;
                         default -> { /* 忽略其他字段 */ }
                     }
                 }
@@ -114,8 +138,28 @@ public class SkillRegistry {
             }
         }
         return new LoadedSkill(
-                new SkillRecord(name, description, version, dirName, true),
+                new SkillRecord(name, description, version, dirName, true,
+                        whenToUse, allowedTools, userInvocable, shell, paths, model),
                 content);
+    }
+
+    /** 列表字段解析：逗号分隔（a, b, c）或方括号形式（[a, b, c]） */
+    private static List<String> parseList(String value) {
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        List<String> items = new ArrayList<>();
+        for (String item : trimmed.split(",")) {
+            String s = item.trim();
+            if (!s.isEmpty()) {
+                items.add(s);
+            }
+        }
+        return items;
     }
 
     public List<SkillRecord> list() {

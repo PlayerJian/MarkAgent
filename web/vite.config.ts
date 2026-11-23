@@ -38,8 +38,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // 开发态代理到 markagent-server（SSE 需要 proxy 支持流式透传，vite 默认开启）
+      // 注意：8080 会被本机 ERP(Frappe) 容器占用，联调期指 8090；ERP 不占 8080 时改回
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8090',
         changeOrigin: true,
       },
     },

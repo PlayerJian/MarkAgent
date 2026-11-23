@@ -10,6 +10,7 @@ public record SessionRecord(
         String title,
         java.util.List<ChatMessage> messages,
         String createdAt,
-        String updatedAt
+        String updatedAt,
+        String docLibraryId   // 会话级文档检索绑定（库 id 或临时上传 id）；后续轮次未带 source 时继承
 ) {
 }

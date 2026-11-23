@@ -38,7 +38,7 @@ function AgentRow({ agent }: { agent: AgentUi }) {
 
   const preview = agent.done ? agent.text : agent.text.slice(-60)
   return (
-    <div style={{ borderTop: '1px dashed #e5e7eb', padding: '6px 0' }}>
+    <div style={{ borderTop: '1px dashed var(--line-2)', padding: '6px 0' }}>
       <div
         onClick={() => setOpen(!open)}
         style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0 }}
@@ -58,13 +58,13 @@ function AgentRow({ agent }: { agent: AgentUi }) {
         </Tag>
         <span
           style={{
-            flex: 1, minWidth: 0, fontSize: 12, color: '#999',
+            flex: 1, minWidth: 0, fontSize: 12, color: 'var(--tx-3)',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}
         >
           {preview ? preview.replace(/\s+/g, ' ') : '（执行中…）'}
         </span>
-        <DownOutlined rotate={open ? 180 : 0} style={{ fontSize: 10, color: '#999', flexShrink: 0 }} />
+        <DownOutlined rotate={open ? 180 : 0} style={{ fontSize: 10, color: 'var(--tx-3)', flexShrink: 0 }} />
       </div>
       {open && (
         <div style={{ marginTop: 6 }}>
@@ -116,23 +116,23 @@ export function ProcessPanel({
         onClick={() => setOpen(!open)}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, cursor: 'pointer',
-          padding: '6px 10px', background: '#f6f9ff', border: '1px solid #d6e4ff',
-          borderRadius: open ? '8px 8px 0 0' : 8,
+          padding: '6px 10px', background: 'rgba(57,230,255,0.07)', border: '1px solid var(--line-3)',
+          borderRadius: 0,
         }}
       >
-        {running ? <LoadingOutlined spin /> : <CheckCircleOutlined style={{ color: '#52c41a' }} />}
+        {running ? <LoadingOutlined spin /> : <CheckCircleOutlined style={{ color: 'var(--green)' }} />}
         <Text strong style={{ whiteSpace: 'nowrap' }}>执行过程</Text>
         {steps.length > 0 && <Tag style={{ marginInlineEnd: 0 }}>计划 {doneSteps}/{steps.length}</Tag>}
         {agents.length > 0 && <Tag style={{ marginInlineEnd: 0 }}>智能体 {doneAgents}/{agents.length}</Tag>}
         <span style={{ flex: 1 }} />
         <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{open ? '收起' : '展开'}</Text>
-        <DownOutlined rotate={open ? 180 : 0} style={{ fontSize: 10, color: '#999' }} />
+        <DownOutlined rotate={open ? 180 : 0} style={{ fontSize: 10, color: 'var(--tx-3)' }} />
       </div>
       {open && (
         <div
           style={{
-            border: '1px solid #d6e4ff', borderTop: 'none', borderRadius: '0 0 8px 8px',
-            padding: '8px 12px', background: '#fbfdff', maxHeight: '45vh', overflowY: 'auto',
+            border: '1px solid var(--line-3)', borderTop: 'none', borderRadius: 0,
+            padding: '8px 12px', background: 'rgba(11,18,32,0.75)', maxHeight: '45vh', overflowY: 'auto',
           }}
         >
           {steps.length > 0 && (
@@ -166,7 +166,7 @@ function ToolCallCard({ call }: { call: ToolCallUi }) {
   return (
     <Card
       size="small"
-      style={{ marginTop: 8, background: '#fafafa' }}
+      style={{ marginTop: 8, background: 'var(--bg-1)' }}
       styles={{ body: { paddingTop: 8, paddingBottom: call.running ? 12 : 4 } }}
       title={
         <Space size={6}>
@@ -204,11 +204,11 @@ export function MessageBubble({ message }: { message: UiMessage }) {
     <div style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 16 }}>
       <div style={{ maxWidth: '85%', minWidth: 120 }}>
         {isUser ? (
-          <div style={{ background: '#1677ff', color: '#fff', padding: '8px 14px', borderRadius: 12, whiteSpace: 'pre-wrap' }}>
+          <div style={{ background: 'var(--cyan)', color: '#04121c', padding: '8px 14px', borderRadius: 0, clipPath: 'var(--clip-sm)', whiteSpace: 'pre-wrap', fontWeight: 600 }}>
             {message.content}
           </div>
         ) : (
-          <div style={{ background: '#fff', border: '1px solid #f0f0f0', padding: '8px 14px', borderRadius: 12 }}>
+          <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line-2)', padding: '8px 14px', borderRadius: 0, clipPath: 'var(--clip-sm)' }}>
             {message.reasoning && (
               <Collapse
                 ghost
@@ -242,14 +242,16 @@ export function MessageBubble({ message }: { message: UiMessage }) {
 /**
  * 完整消息流（含执行过程块的插入位置：当前轮最后一条 assistant 消息之前（过程 → 结果）；
  * 还没有回复时追加在末尾）。ChatPage 与历史回放页共用。
+ * compactNotice 非空时在消息流底部显示一条细小的系统提示行（上下文压缩状态）。
  */
 export function ConversationList({
-  messages, plan, agents, taskStatus,
+  messages, plan, agents, taskStatus, compactNotice,
 }: {
   messages: UiMessage[]
   plan: PlanUi | null
   agents: AgentUi[]
   taskStatus: TaskUiStatus
+  compactNotice?: { phase: string; note: string } | null
 }) {
   if (messages.length === 0) return null
 
@@ -274,6 +276,16 @@ export function ConversationList({
       ))}
       {processAnchor === messages.length && messages.length > 0 && (
         <ProcessPanel plan={plan} agents={agents} taskStatus={taskStatus} />
+      )}
+      {compactNotice && (
+        <div
+          style={{
+            textAlign: 'center', padding: '2px 0 10px', fontSize: 12,
+            color: 'var(--cyan)', opacity: 0.75, fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {compactNotice.note}
+        </div>
       )}
     </>
   )

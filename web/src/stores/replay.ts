@@ -60,6 +60,8 @@ export interface ReplayState {
   sessionId: string | null
   lastSeq: number
   error: string | null
+  /** 上下文压缩系统提示（COMPACT 事件折叠结果，消息流底部细线展示） */
+  compactNotice: { phase: string; note: string } | null
 }
 
 export const initialReplay: ReplayState = {
@@ -70,6 +72,7 @@ export const initialReplay: ReplayState = {
   sessionId: null,
   lastSeq: 0,
   error: null,
+  compactNotice: null,
 }
 
 /**
@@ -203,6 +206,23 @@ export function applyEvent(
       next.taskStatus = 'paused'
       changed = true
       break
+    case 'COMPACT': {
+      const phase = data.phase as string
+      if (phase === 'planned') {
+        next.compactNotice = {
+          phase,
+          note: `上下文即将压缩（已用 ${data.usedTokens ?? '-'} / 有效窗口 ${data.effectiveWindow ?? '-'}）`,
+        }
+      } else if (phase === 'completed') {
+        next.compactNotice = { phase, note: `上下文压缩完成（保留 ${data.keptMessages ?? 0} 条消息）` }
+      } else if (phase === 'failed') {
+        next.compactNotice = { phase, note: '上下文压缩失败，会话将以完整上下文继续' }
+      } else {
+        break
+      }
+      changed = true
+      break
+    }
     case 'ERROR':
       next.error = data.message as string
       changed = true

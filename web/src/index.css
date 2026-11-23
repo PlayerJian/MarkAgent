@@ -1,3 +1,36 @@
+/* ============================================================
+   MarkAgent · TACTICAL HUD 全局样式
+   全息青深色系 · 切角 · 四角括号 · 扫描线 · 辉光
+   ============================================================ */
+:root {
+  --bg-0: #05080f;
+  --bg-1: #080d17;
+  --bg-2: #0b1220;
+  --bg-3: #0f1829;
+  --bg-4: #152238;
+  --line-1: rgba(57, 230, 255, 0.1);
+  --line-2: rgba(57, 230, 255, 0.22);
+  --line-3: rgba(57, 230, 255, 0.42);
+  --cyan: #39e6ff;
+  --cyan-d: #2bc8e0;
+  --blue: #4d7cfe;
+  --green: #2bffa8;
+  --amber: #ffb340;
+  --red: #ff4d6a;
+  --purple: #9d7bff;
+  --tx-1: #d9f4ff;
+  --tx-2: #7e9bbd;
+  --tx-3: #4c617c;
+  --font-display: 'Chakra Petch', 'IBM Plex Sans', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-sans: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', Consolas, monospace;
+  --cc: 12px;
+  --cc-sm: 7px;
+  --clip: polygon(var(--cc) 0, 100% 0, 100% calc(100% - var(--cc)), calc(100% - var(--cc)) 100%, 0 100%, 0 var(--cc));
+  --clip-sm: polygon(var(--cc-sm) 0, 100% 0, 100% calc(100% - var(--cc-sm)), calc(100% - var(--cc-sm)) 100%, 0 100%, 0 var(--cc-sm));
+  --hex: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+}
+
 html,
 body,
 #root {
@@ -7,23 +40,541 @@ body,
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', sans-serif;
-  background: #f5f5f5;
+  font-family: var(--font-sans);
+  background: var(--bg-0);
+  color: var(--tx-1);
+  font-feature-settings: 'tnum' 1;
 }
 
-/* 移动端响应式（<768px 切底部导航 + 全屏聊天） */
+/* 全局网格底纹 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(57, 230, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 230, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(rgba(57, 230, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 230, 255, 0.022) 1px, transparent 1px);
+  background-size: 88px 88px, 88px 88px, 22px 22px, 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 92%);
+}
+/* 横向扫描线 */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(180deg, transparent 0 3px, rgba(255, 255, 255, 0.014) 3px 4px);
+}
+
+::selection {
+  background: rgba(57, 230, 255, 0.25);
+  color: #fff;
+}
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(57, 230, 255, 0.22);
+  border: 2px solid var(--bg-0);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ Layout 骨架 ============ */
+.ant-layout {
+  background: transparent;
+}
+.ant-layout-has-sider {
+  background: transparent;
+}
+.ant-layout-header {
+  background: rgba(8, 13, 23, 0.92) !important;
+  border-bottom: 1px solid var(--line-2);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+.ant-layout-sider {
+  background: rgba(8, 13, 23, 0.95) !important;
+  border-right: 1px solid var(--line-2);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.ant-layout-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ============ Card：切角 + 角标 + 扫描 ============ */
+.ant-card {
+  background: linear-gradient(180deg, rgba(15, 24, 41, 0.9), rgba(11, 18, 32, 0.94));
+  border: 1px solid var(--line-2);
+  clip-path: var(--clip);
+  position: relative;
+}
+.ant-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  background:
+    linear-gradient(var(--cyan), var(--cyan)) left 6px top 5px / 12px 1.5px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) left 6px top 5px / 1.5px 12px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) right 6px top 5px / 12px 1.5px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) right 6px top 5px / 1.5px 12px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) left 6px bottom 5px / 12px 1.5px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) left 6px bottom 5px / 1.5px 12px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) right 6px bottom 5px / 12px 1.5px no-repeat,
+    linear-gradient(var(--cyan), var(--cyan)) right 6px bottom 5px / 1.5px 12px no-repeat;
+  opacity: 0.7;
+}
+.ant-card::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  height: 90px;
+  top: -90px;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(57, 230, 255, 0.08) 55%, rgba(57, 230, 255, 0.16), transparent);
+  animation: card-scan 5.5s linear infinite;
+}
+@keyframes card-scan {
+  0% { top: -90px; }
+  100% { top: 110%; }
+}
+.ant-card-head {
+  border-bottom: 1px solid var(--line-1) !important;
+  font-family: var(--font-display);
+  letter-spacing: 0.05em;
+  position: relative;
+  z-index: 4;
+}
+.ant-card-head-title {
+  font-weight: 600;
+}
+.ant-card-body {
+  position: relative;
+  z-index: 4;
+}
+
+/* ============ Button ============ */
+.ant-btn {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+  position: relative;
+}
+.ant-btn-default {
+  background: var(--bg-3);
+  border-color: var(--line-2);
+  color: var(--tx-1);
+}
+.ant-btn-default:hover:not(:disabled) {
+  background: var(--bg-4);
+  border-color: var(--line-3);
+  color: var(--tx-1);
+}
+.ant-btn-primary {
+  background: linear-gradient(135deg, var(--cyan), #2bb8e6);
+  border-color: var(--cyan);
+  color: #04121c;
+  font-weight: 700;
+  filter: drop-shadow(0 0 10px rgba(57, 230, 255, 0.4));
+}
+.ant-btn-primary:hover:not(:disabled) {
+  background: var(--cyan);
+  border-color: var(--cyan);
+  color: #04121c;
+}
+.ant-btn-dangerous {
+  border-color: rgba(255, 77, 106, 0.45);
+}
+.ant-btn-link {
+  clip-path: none;
+  font-family: var(--font-sans);
+}
+.ant-btn > .anticon + span {
+  margin-inline-start: 6px;
+}
+
+/* ============ Input / Select / Textarea ============ */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-picker,
+.ant-select .ant-select-selector {
+  border-radius: 0 !important;
+  clip-path: var(--clip-sm);
+  background: var(--bg-2);
+  border-color: var(--line-2);
+}
+.ant-input {
+  background: var(--bg-2);
+}
+.ant-input-affix-wrapper {
+  background: var(--bg-2);
+}
+.ant-input-affix-wrapper:hover,
+.ant-input:hover,
+.ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: var(--line-3);
+}
+.ant-input-affix-wrapper-focused,
+.ant-input:focus,
+.ant-input-affix-wrapper:focus-within,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--cyan) !important;
+  box-shadow: 0 0 0 2px rgba(57, 230, 255, 0.12) !important;
+}
+.ant-select-arrow,
+.ant-select-selection-placeholder,
+.ant-input::placeholder,
+.ant-input-affix-wrapper input::placeholder {
+  color: var(--tx-3);
+}
+.ant-select-dropdown {
+  background: var(--bg-4);
+  border: 1px solid var(--line-3);
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+}
+.ant-select-item {
+  color: var(--tx-1);
+}
+.ant-select-item-option-selected {
+  background: rgba(57, 230, 255, 0.14) !important;
+}
+
+/* ============ Tag ============ */
+.ant-tag {
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* ============ Menu（侧边导航） ============ */
+.ant-menu {
+  background: transparent;
+  border-inline-end: none !important;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.ant-menu-item {
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+  color: var(--tx-2) !important;
+}
+.ant-menu-item:hover {
+  color: var(--tx-1) !important;
+  background: var(--bg-3) !important;
+}
+.ant-menu-item-selected {
+  background: rgba(57, 230, 255, 0.12) !important;
+  color: var(--cyan) !important;
+  border: 1px solid var(--line-3);
+  text-shadow: 0 0 10px rgba(57, 230, 255, 0.5);
+}
+
+/* ============ 侧边栏历史对话面板（豆包/千问/Codex 式） ============ */
+.session-panel {
+  flex: 1;
+  min-height: 0; /* 关键：占满菜单下方剩余空间，内部列表独立滚动（滑动窗口） */
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line-1);
+  margin-top: 8px;
+  padding: 10px 8px 8px;
+  overflow: hidden;
+}
+.session-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.session-panel-head > .ant-btn-primary {
+  flex: 1;
+}
+.session-panel-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--tx-3);
+  margin: 2px 4px 6px;
+  text-transform: uppercase;
+}
+.session-panel-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin: 0 -2px;
+  padding: 0 2px;
+}
+.session-panel-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+}
+.session-panel-list .ant-empty {
+  margin: 28px 0;
+}
+.session-panel-list .ant-empty-image {
+  height: 32px;
+}
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  clip-path: var(--clip-sm);
+  transition: background 0.15s;
+}
+.session-item:hover {
+  background: var(--bg-3);
+}
+.session-item.active {
+  background: rgba(57, 230, 255, 0.12);
+  border-color: var(--line-3);
+}
+.session-item-icon {
+  color: var(--tx-3);
+  font-size: 13px;
+  flex: none;
+}
+.session-item.active .session-item-icon {
+  color: var(--cyan);
+}
+.session-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.session-item-title {
+  font-size: 12.5px;
+  color: var(--tx-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-item.active .session-item-title {
+  color: var(--cyan);
+}
+.session-item-time {
+  font-size: 11px;
+  color: var(--tx-3);
+}
+.session-item-del {
+  flex: none;
+  visibility: hidden;
+  color: var(--tx-3) !important;
+  clip-path: none;
+}
+.session-item:hover .session-item-del {
+  visibility: visible;
+}
+.session-item-del:hover {
+  color: var(--red) !important;
+}
+
+/* ============ Table ============ */
+.ant-table {
+  background: transparent;
+  color: var(--tx-1);
+}
+.ant-table-thead > tr > th {
+  background: var(--bg-3) !important;
+  color: var(--tx-2);
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid var(--line-2) !important;
+}
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--line-1);
+  color: var(--tx-1);
+}
+.ant-table-tbody > tr.ant-table-row:hover > td {
+  background: rgba(57, 230, 255, 0.06) !important;
+}
+.ant-pagination .ant-pagination-item,
+.ant-pagination button {
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+  background: var(--bg-3);
+  border-color: var(--line-2);
+}
+.ant-pagination .ant-pagination-item-active {
+  border-color: var(--cyan);
+}
+
+/* ============ Modal / Drawer ============ */
+.ant-modal .ant-modal-content,
+.ant-drawer .ant-drawer-content {
+  background: var(--bg-3);
+  border: 1px solid var(--line-3);
+  border-radius: 0;
+  clip-path: var(--clip);
+}
+.ant-modal .ant-modal-header,
+.ant-drawer .ant-drawer-header {
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--line-2);
+  font-family: var(--font-display);
+}
+.ant-drawer .ant-drawer-body {
+  background: var(--bg-2);
+}
+
+/* ============ Steps / Collapse / Tabs ============ */
+.ant-steps .ant-steps-item-title {
+  font-family: var(--font-display);
+}
+.ant-steps-item-finish .ant-steps-item-icon {
+  border-color: var(--green);
+}
+.ant-collapse {
+  background: transparent;
+  border-radius: 0;
+  border-color: var(--line-2);
+}
+.ant-collapse > .ant-collapse-item {
+  border-color: var(--line-1);
+}
+.ant-collapse-content {
+  background: rgba(11, 18, 32, 0.6);
+}
+.ant-tabs-tab {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.ant-tabs-ink-bar {
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+}
+
+/* ============ Progress ============ */
+.ant-progress-text {
+  font-family: var(--font-mono);
+  color: var(--cyan);
+}
+.ant-progress-success-bg,
+.ant-progress-bg {
+  border-radius: 0;
+}
+
+/* ============ Alert / Empty / Spin / Tooltip ============ */
+.ant-alert {
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+}
+.ant-empty-description,
+.ant-empty-normal {
+  color: var(--tx-3);
+}
+.ant-tooltip-inner,
+.ant-popover-inner {
+  background: var(--bg-4);
+  border: 1px solid var(--line-3);
+  border-radius: 0;
+  font-family: var(--font-mono);
+}
+.ant-dropdown-menu {
+  background: var(--bg-4);
+  border: 1px solid var(--line-3);
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+}
+.ant-dropdown-menu-item:hover {
+  background: rgba(57, 230, 255, 0.12);
+}
+
+/* Upload 拖拽区 */
+.ant-upload-wrapper .ant-upload-drag {
+  background: var(--bg-2);
+  border: 1px dashed var(--line-3);
+  border-radius: 0;
+  clip-path: var(--clip);
+}
+.ant-upload-wrapper .ant-upload-drag:hover {
+  border-color: var(--cyan);
+}
+
+/* ============ Markdown 深色化 ============ */
+.md-body,
+.markdown-body {
+  color: var(--tx-1);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.md-body p,
+.markdown-body p {
+  margin: 0.4em 0;
+}
+.md-body pre,
+.markdown-body pre {
+  background: var(--bg-0);
+  border: 1px solid var(--line-1);
+  padding: 12px 14px;
+  border-radius: 0;
+  clip-path: var(--clip-sm);
+  overflow-x: auto;
+}
+.md-body code,
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--cyan);
+}
+.md-body pre code,
+.markdown-body pre code {
+  color: var(--tx-2);
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  font-family: var(--font-display);
+  letter-spacing: 0.04em;
+}
+.markdown-body a {
+  color: var(--cyan);
+}
+.markdown-body blockquote {
+  border-inline-start: 3px solid var(--cyan);
+  color: var(--tx-2);
+  margin: 8px 0;
+  padding-inline-start: 12px;
+}
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid var(--line-2);
+  padding: 6px 10px;
+}
+
+/* ============ 响应式显隐（保留原有类名） ============ */
 @media (max-width: 768px) {
   .desktop-only {
     display: none !important;
   }
-  /* 底部导航占位：内容不被遮挡 */
   .mobile-pad {
     padding-bottom: 64px;
   }
 }
-
 @media (min-width: 769px) {
   .mobile-only {
     display: none !important;
@@ -37,13 +588,13 @@ body {
   left: 0;
   right: 0;
   height: 56px;
-  background: #fff;
-  border-top: 1px solid #f0f0f0;
+  background: rgba(8, 13, 23, 0.97);
+  border-top: 1px solid var(--line-2);
   display: flex;
   z-index: 100;
   padding-bottom: env(safe-area-inset-bottom);
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 0, 100% 100%, 0 100%, 0 0);
 }
-
 .mobile-nav-item {
   flex: 1;
   display: flex;
@@ -51,30 +602,26 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #8c8c8c;
+  font-family: var(--font-display);
+  color: var(--tx-2);
   cursor: pointer;
   gap: 2px;
 }
-
 .mobile-nav-item .anticon {
   font-size: 20px;
 }
-
 .mobile-nav-item.active {
-  color: #1677ff;
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(57, 230, 255, 0.6);
 }
 
-/* 流式消息中的 markdown 样式基础修正 */
-.md-body p {
-  margin: 0.3em 0;
-}
-.md-body pre {
-  background: #f6f8fa;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-}
-.md-body code {
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 0.9em;
+/* ============ 低动效 ============ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

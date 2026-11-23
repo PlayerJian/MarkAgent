@@ -12,6 +12,7 @@ import SessionDetailPage from './pages/SessionDetailPage'
 import MemoryPage from './pages/MemoryPage'
 import SkillsPage from './pages/SkillsPage'
 import McpPage from './pages/McpPage'
+import DocsPage from './pages/DocsPage'
 import SettingsPage from './pages/SettingsPage'
 
 export default function App() {
@@ -60,11 +61,13 @@ export default function App() {
             element={token ? <MainLayout /> : <Navigate to="/login" replace />}
           >
             <Route index element={<ChatPage />} />
+            <Route path="chat/:sessionId" element={<ChatPage />} />
             <Route path="tasks" element={<TasksPage />} />
             <Route path="tasks/:sessionId" element={<SessionDetailPage />} />
             <Route path="memory" element={<MemoryPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="mcp" element={<McpPage />} />
+            <Route path="docs" element={<DocsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

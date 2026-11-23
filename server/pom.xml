@@ -66,12 +66,31 @@
             <artifactId>agentscope-dashscope-spring-boot-starter</artifactId>
         </dependency>
         <!-- skills 能力在 agentscope-core/harness 内（BOM 无独立 skills 工件），M4 核实；如需 Git 技能仓库同步可加 agentscope-extensions-skill-git-repository -->
+        <!-- MCP SDK（显式声明，版本与 agentscope-core 2.0.4 的传递依赖一致）：
+             绕过 AgentScope 未暴露的 resources API，直接引用底层 SDK 实现 MCP 资源读取 -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp</artifactId>
+            <version>0.17.2</version>
+        </dependency>
 
         <!-- JWT（M3 认证用） -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
             <version>${jjwt.version}</version>
+        </dependency>
+
+        <!-- 文档库块级倒排索引：内嵌 Lucene（MMapDirectory 落盘，OS page cache 管热数据） -->
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+            <version>10.2.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-analysis-common</artifactId>
+            <version>10.2.1</version>
         </dependency>
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
@@ -130,6 +149,11 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Lucene 10 的 VectorizationProvider：启用 JDK Vector API（SIMD 打分加速），
+                         不加则回退标量实现（功能不变，启动打 WARN） -->
+                    <jvmArguments>--add-modules jdk.incubator.vector</jvmArguments>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

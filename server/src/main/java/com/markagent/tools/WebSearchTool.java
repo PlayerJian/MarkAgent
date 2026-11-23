@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,6 +29,12 @@ import java.util.regex.Pattern;
  * {@link HttpRequestTool} 一致的「零新依赖」风格（刻意不引 jsoup，同
  * {@link MarkAgentToolRegistrar} 的绕依赖思路）。
  * <p>
+ * 入口 query 逻辑对齐 Claude Code WebSearch：
+ * <ul>
+ *   <li>query 规范化：trim + 空白折叠 + 最短 2 字符（对齐 z.string().min(2)）+ 上限 300 字符</li>
+ *   <li>allowed_domains / blocked_domains 域名过滤（含子域），两者互斥（对齐 validateInput 的互斥校验）</li>
+ *   <li>描述提示检索近期内容时带上当前年份（对齐 prompt.ts 的年份指引；今日日期由 PromptAssembler 动态注入）</li>
+ * </ul>
  * 已知限制：HTML 抓取受搜索引擎反爬策略影响（响应结构变化或限流时降级/报错）；
  * 结果仅为网页快照信息，可靠性需使用者自行判断。
  */
@@ -38,6 +45,8 @@ public class WebSearchTool {
     private static final int MAX_RESULTS = 10;
     private static final int SNIPPET_MAX_CHARS = 200;
     private static final int OUTPUT_MAX_CHARS = 4000;
+    private static final int QUERY_MIN_CHARS = 2;
+    private static final int QUERY_MAX_CHARS = 300;
 
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
@@ -68,40 +77,140 @@ public class WebSearchTool {
     // ---- HTML 实体 ----
     private static final Pattern NUMERIC_ENTITY = Pattern.compile("&#(x[0-9a-fA-F]+|[0-9]+);");
 
-    /** 搜索结果（内部模型） */
-    private record SearchResult(String title, String url, String snippet) {
+    /** 搜索结果（内部模型；包内可见供单测构造） */
+    record SearchResult(String title, String url, String snippet) {
     }
 
     /** 引擎请求结果：reachable=false 表示网络/HTTP 失败（区别于「有响应但零结果」） */
     private record EngineOutcome(boolean reachable, List<SearchResult> results) {
     }
 
+    /** 双引擎合并结果（Bing 优先）：reachable 任一引擎网络可达即为 true */
+    private record SearchOutcome(boolean reachable, List<SearchResult> results) {
+    }
+
     @Tool(name = "web_search", description = "实时网络搜索：以关键词检索公开网页，返回「标题/网址/摘要」列表（最多 10 条）。"
-            + "当需要最新资讯、实时数据、事实查证，或信息超出模型知识截止日期时使用；抓取具体网页正文用 http_get。"
-            + "query 建议用空格分隔的关键词（中文亦可）；结果仅为搜索引擎快照，重要结论需交叉验证。",
+            + "当需要最新资讯、实时数据、事实查证，或信息超出模型知识截止日期时使用；抓取具体网页正文并按要求提炼用 web_fetch。"
+            + "query 建议用空格分隔的关键词（中文亦可，至少 2 个字符）；检索近期/最新内容时请带上当前年份（今日日期见动态上下文）。"
+            + "可用 allowed_domains 限定结果域名（含子域，如 example.com），或 blocked_domains 排除域名；两者互斥，不能同时指定。"
+            + "结果仅为搜索引擎快照，重要结论需交叉验证。",
             strict = true, readOnly = true, concurrencySafe = true)
     public String webSearch(@ToolParam(name = "query", required = true,
-            description = "搜索关键词或问题，建议用空格分隔的关键词") String query,
+            description = "搜索关键词或问题，建议用空格分隔的关键词，至少 2 个字符；检索近期内容请带上当前年份") String query,
             @ToolParam(name = "maxResults", required = false,
-                    description = "返回结果条数上限，默认 5，范围 1-10") Integer maxResults) {
-        String q = query == null ? "" : query.trim();
-        if (q.isEmpty()) {
-            return "错误：query 不能为空";
+                    description = "返回结果条数上限，默认 5，范围 1-10") Integer maxResults,
+            @ToolParam(name = "allowed_domains", required = false,
+                    description = "仅保留这些域名（含其子域）的结果，如 [\"example.com\", \"wikipedia.org\"]；"
+                            + "与 blocked_domains 互斥") List<String> allowedDomains,
+            @ToolParam(name = "blocked_domains", required = false,
+                    description = "排除这些域名（含其子域）的结果，如 [\"example.com\"]；"
+                            + "与 allowed_domains 互斥") List<String> blockedDomains) {
+        String q = normalizeQuery(query);
+        if (q == null) {
+            return "错误：query 缺失或过短（空白压缩后至少 " + QUERY_MIN_CHARS + " 个字符）";
+        }
+        List<String> allowed = cleanDomains(allowedDomains);
+        List<String> blocked = cleanDomains(blockedDomains);
+        if (!allowed.isEmpty() && !blocked.isEmpty()) {
+            return "错误：allowed_domains 与 blocked_domains 不能同时指定，二选一";
         }
         int n = maxResults == null ? 5 : Math.max(1, Math.min(maxResults, MAX_RESULTS));
 
-        EngineOutcome bing = searchBing(q, n);
-        if (!bing.results().isEmpty()) {
-            return format(q, bing.results());
+        SearchOutcome outcome = search(q);
+        List<SearchResult> results = filterByDomains(outcome.results(), allowed, blocked);
+        if (results.isEmpty()) {
+            if (outcome.reachable()) {
+                return "未找到与「" + q + "」相关的搜索结果（可尝试更换关键词"
+                        + ((!allowed.isEmpty() || !blocked.isEmpty()) ? "或调整域名过滤条件" : "") + "）。";
+            }
+            return "错误：搜索引擎均不可达（Bing 与 DuckDuckGo 请求失败或超时），请稍后重试。";
         }
-        EngineOutcome ddg = searchDuckDuckGo(q, n);
-        if (!ddg.results().isEmpty()) {
-            return format(q, ddg.results());
+        if (results.size() > n) {
+            results = new ArrayList<>(results.subList(0, n));
         }
-        if (bing.reachable() || ddg.reachable()) {
-            return "未找到与「" + q + "」相关的搜索结果（可尝试更换关键词）。";
+        return format(q, results);
+    }
+
+    /** 双引擎合并检索：Bing 优先、DDG 补充（域名过滤后才有意义——单一引擎结果可能全被过滤） */
+    private static SearchOutcome search(String query) {
+        List<SearchResult> results = new ArrayList<>();
+        EngineOutcome bing = searchBing(query, MAX_RESULTS);
+        EngineOutcome ddg = searchDuckDuckGo(query, MAX_RESULTS);
+        results.addAll(bing.results());
+        results.addAll(ddg.results());
+        return new SearchOutcome(bing.reachable() || ddg.reachable(), results);
+    }
+
+    // ---------- 入口 query 纯逻辑（包内可见，供单测） ----------
+
+    /** query 规范化：trim + 空白折叠；空/短于 {@link #QUERY_MIN_CHARS} 返回 null；超长截断 */
+    static String normalizeQuery(String raw) {
+        if (raw == null) {
+            return null;
         }
-        return "错误：搜索引擎均不可达（Bing 与 DuckDuckGo 请求失败或超时），请稍后重试。";
+        String q = raw.trim().replaceAll("\\s+", " ");
+        if (q.length() < QUERY_MIN_CHARS) {
+            return null;
+        }
+        return q.length() > QUERY_MAX_CHARS ? q.substring(0, QUERY_MAX_CHARS) : q;
+    }
+
+    /** 域名规范化：trim/小写/去 www 前缀/去重；输入 null 返回空列表 */
+    static List<String> cleanDomains(List<String> raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String domain : raw) {
+            if (domain == null) {
+                continue;
+            }
+            String cleaned = stripWww(domain.trim().toLowerCase(Locale.ROOT));
+            if (!cleaned.isBlank() && !out.contains(cleaned)) {
+                out.add(cleaned);
+            }
+        }
+        return out;
+    }
+
+    /** 结果 URL 是否命中域名（精确 + 子域后缀匹配，www 前缀忽略） */
+    static boolean domainMatches(String url, String domain) {
+        try {
+            String host = URI.create(url).getHost();
+            if (host == null) {
+                return false;
+            }
+            String h = stripWww(host.toLowerCase(Locale.ROOT));
+            String d = stripWww(domain.toLowerCase(Locale.ROOT).trim());
+            return !d.isEmpty() && (h.equals(d) || h.endsWith("." + d));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 域名过滤：allowed 非空时仅保留命中任一 allowed 的结果；blocked 非空时剔除命中任一 blocked 的结果 */
+    static List<SearchResult> filterByDomains(List<SearchResult> results, List<String> allowed, List<String> blocked) {
+        if (results == null || results.isEmpty()) {
+            return List.of();
+        }
+        if ((allowed == null || allowed.isEmpty()) && (blocked == null || blocked.isEmpty())) {
+            return results;
+        }
+        List<SearchResult> out = new ArrayList<>();
+        for (SearchResult result : results) {
+            if (!allowed.isEmpty() && allowed.stream().noneMatch(d -> domainMatches(result.url(), d))) {
+                continue;
+            }
+            if (!blocked.isEmpty() && blocked.stream().anyMatch(d -> domainMatches(result.url(), d))) {
+                continue;
+            }
+            out.add(result);
+        }
+        return out;
+    }
+
+    private static String stripWww(String host) {
+        return host != null && host.startsWith("www.") ? host.substring(4) : host;
     }
 
     // ---------- Bing 通道 ----------

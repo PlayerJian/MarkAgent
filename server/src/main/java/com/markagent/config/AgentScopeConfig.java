@@ -61,22 +61,40 @@ public class AgentScopeConfig {
             com.markagent.tools.DateTimeTool dateTime,
             com.markagent.tools.HttpRequestTool httpRequest,
             com.markagent.tools.WebSearchTool webSearch,
+            com.markagent.tools.WebFetchTool webFetch,
             com.markagent.tools.WorkspaceFileTool workspaceFile,
             com.markagent.tools.PlanTool planTool,
             com.markagent.tools.SkillTool skillTool,
             com.markagent.tools.MemoryTool memoryTool,
             com.markagent.tools.TeamTool teamTool,
+            com.markagent.tools.FileSearchTool fileSearch,
+            com.markagent.tools.FileEditTool fileEdit,
+            com.markagent.ask.AskUserTool askUser,
+            com.markagent.inbox.SendMessageTool sendMessage,
+            com.markagent.tools.McpResourceTool mcpResource,
+            com.markagent.cron.CronTool cronTool,
+            com.markagent.integration.IntegrationTool integrationTool,
+            com.markagent.tools.DocQueryTool docQuery,
             com.markagent.mcp.McpServerManager mcpManager) {
         Toolkit toolkit = new Toolkit();
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, calculator);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, dateTime);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, httpRequest);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, webSearch);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, webFetch);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, workspaceFile);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, planTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, skillTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, memoryTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, teamTool);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, fileSearch);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, fileEdit);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, askUser);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, sendMessage);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, mcpResource);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, cronTool);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, integrationTool);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, docQuery);
         // MCP 启动期注册：ReActAgent.Builder 深拷贝 toolkit，必须在 agent build 前完成
         mcpManager.attach(toolkit);
         return toolkit;
@@ -91,10 +109,15 @@ public class AgentScopeConfig {
             com.markagent.mcp.McpServerManager mcpManager,
             @Value("${markagent.agent.name:MarkAgent}") String name,
             @Value("${markagent.agent.sys-prompt:你是一名专业的企业级 AI 助手。}") String sysPrompt,
+            @Value("${markagent.agent.team-addendum:}") String teamAddendum,
             @Value("${markagent.agent.max-iters:30}") int maxIters) {
+        // 多智能体团队编排补充提示词：配置非空时追加到 sysPrompt 末尾（换行分隔）
+        String effectiveSysPrompt = (teamAddendum == null || teamAddendum.isBlank())
+                ? sysPrompt
+                : sysPrompt + "\n\n" + teamAddendum;
         ReActAgent agent = ReActAgent.builder()
                 .name(name)
-                .sysPrompt(sysPrompt)
+                .sysPrompt(effectiveSysPrompt)
                 .model(agentScopeModel)
                 .toolkit(toolkit)
                 .maxIters(maxIters)
