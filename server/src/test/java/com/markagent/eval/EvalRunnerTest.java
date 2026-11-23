@@ -320,7 +320,7 @@ class EvalRunnerTest {
     private static JsonNode judge(String question, String goldResultText, String answer) throws Exception {
         String key = System.getenv("DEEPSEEK_API_KEY");
         if (key == null || key.isBlank()) {
-            key = ""; // 与 application.yml 默认一致（评测用途）
+            throw new IllegalStateException("DEEPSEEK_API_KEY 未设置，无法调用 LLM judge");
         }
         String prompt = "你是 Text2SQL 评测裁判。判断 AI 助手对数据查询问题的回答是否正确。\n"
                 + "问题：" + question + "\n"
