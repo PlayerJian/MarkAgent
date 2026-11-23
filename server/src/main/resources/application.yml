@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: markagent-server
+  http:
+    converters:
+      # 双 Jackson 共存（2.21 由 Spring AI/MCP 引入，3.1 由 Boot 4.1 的 spring-boot-jackson 引入）时，
+      # MVC 默认走 Jackson 3（值 "jackson"），会把 Jackson 2 的 JsonNode 当 POJO 序列化（SseEvent.data 变 POJO 视图）。
+      # 强制 MVC 用 Jackson 2（值 "jackson2"，与存储层/SSE 写入同一个 mapper，行为一致）。
+      preferred-json-mapper: jackson2
   servlet:
     multipart:
       max-file-size: 200MB
@@ -59,6 +65,7 @@ markagent:
       - 计算类问题优先用 calculator 工具，需要当前时间用 now 工具，需要外部数据用 http_get/http_post，需要保存中间产物用 file_write。
       - 需要最新网络信息、实时资讯或事实查证时用 web_search 工具（query 为空格分隔的关键词，检索近期内容请带上当前年份）；搜索结果仅为网页快照，重要结论需交叉验证。
       - 需要读取并提炼具体网页/文档内容时用 web_fetch 工具（url + prompt，prompt 说明要提取什么）；仅支持公开纯文本页面，登录墙链接会失败。
+      - 需要理解图片内容（识别图中文字、描述截图/照片、分析图表、看图回答问题等）时用 vision_analyze 工具：image 传图片（本地文件路径、http(s) URL 或 base64 data URL），task 写明要让视觉模型完成的具体任务；多智能体协作时把整体目标、已完成的进展与这张图和任务的关系写进 context。
       - 需要读取 MCP 服务器提供的资源（配置文件、数据快照等）时先用 mcp_resources_list 查看可用资源，再用 mcp_resource_read 按 uri 读取文本内容。
       - 任务开始前先 memory_search 检索用户长期记忆；发现用户偏好、重要约定、值得跨会话记住的结论时用 memory_save 写入长期记忆。
       - 需要分工协作的复杂任务（调研+写作、多模块开发等）用 spawn_agent 派生专家 worker 并行执行子任务，然后汇总各 worker 结论形成终稿；简单任务不必派生。
@@ -69,6 +76,13 @@ markagent:
       - 后台派生的 worker 可用 agent_list 查看全体状态，用 agent_stop 停止不再需要的 worker。
       - 用户要求周期性执行的任务（日报、巡检、数据同步）用 cron_create 创建定时任务（6 字段 cron 表达式，秒 分 时 日 月 周，如「0 30 9 * * MON-FRI」），用 cron_list 查看、cron_disable/cron_delete 管理；不要自己「等待+轮询」模拟定时。
       - 需要查询业务数据（报表、库存、订单等）时用 db_query（只读 SQL，仅支持 SELECT 类语句）；集成未启用时如实告知用户需要管理员配置数据库连接。
+      - 查询 school 库（智慧校园业务数据：学生/成绩/考勤/一卡通/图书馆/财务/宿舍/食堂/校车等）按以下流程：
+        1) search_modules 用问题关键词定位相关模块（跨模块问题会命中多个，最多加载 3 个）；
+        2) load_module 加载模块文档（表摘要卡 + 跨模块关联），据摘要卡确定所需表与 JOIN 路径；
+        3) 摘要卡信息不足（缺精确列名/JOIN 列/过滤枚举值）时 table_schema 按需补取，不要为凑数加载无关表；
+        4) db_query 执行只读 SQL 得出答案；SQL 报错按文档核对列名/枚举值后修正重试。
+      - 不记得表名时 search_tables 搜关键词兜底；重要口径（时间基准、class 保留字加双引号、空表结果合法）先 load_module("glossary")。
+      - 题目范围不明确时（哪次考试/哪个学期/哪个年级范围）：默认取「最近一次或当前学期」，并在答案开头声明所取口径；范围扩大时用 GROUP BY 给出分层统计，不要输出超长名单。
       - 需要向企业群/机器人推送通知时用 notify_send；创建/查询工单用 ticket_create/ticket_query。
       - 工具结果不充分时如实说明，不编造。
     # 多智能体团队编排补充提示词（非空时追加到 sys-prompt 末尾）
@@ -87,6 +101,13 @@ markagent:
     index-max-lines: 200
     index-max-bytes: 25000
     inject-index: true
+  # 视觉理解工具（vision_analyze）：OpenAI 兼容视觉大模型端点；默认 deepseek-flash，
+  # 切 qwen 等把 base-url 指到对应兼容端点（如 https://dashscope.aliyuncs.com/compatible-mode/v1）+ VISION_MODEL
+  vision:
+    base-url: ${VISION_BASE_URL:https://api.deepseek.com}
+    api-key: ${VISION_API_KEY:${spring.ai.deepseek.api-key}}
+    model: ${VISION_MODEL:deepseek-flash}
+    max-tokens: ${VISION_MAX_TOKENS:4096}
   # 自动上下文压缩：有效窗口 = context.max-tokens - reserve-tokens；再留 buffer-tokens 提前触发；连续失败熔断
   compact:
     enabled: true
@@ -116,13 +137,13 @@ markagent:
   # 定时任务：enabled=false 时不启动调度循环，CRUD 照常可用
   cron:
     enabled: true
-  # 企业系统集成（全部默认禁用/本地兜底，接入真实系统时配置开启）
+  # 企业系统集成（notify/ticket 默认禁用/本地兜底；database 已接 school-pg 评测库）
   integration:
     database:
-      enabled: false            # 接只读库后置 true
-      jdbc-url: ${INTEGRATION_DB_JDBC_URL:}
-      username: ${INTEGRATION_DB_USERNAME:}
-      password: ${INTEGRATION_DB_PASSWORD:}
+      enabled: true             # school-pg（Text2SQL 评测库，逻辑外键只读查询）
+      jdbc-url: ${INTEGRATION_DB_JDBC_URL:jdbc:postgresql://127.0.0.1:5433/school}
+      username: ${INTEGRATION_DB_USERNAME:postgres}
+      password: ${INTEGRATION_DB_PASSWORD:school123456}
     notify:
       enabled: false            # 接企微/钉钉 webhook 后置 true
       webhook-url: ${INTEGRATION_NOTIFY_WEBHOOK_URL:}

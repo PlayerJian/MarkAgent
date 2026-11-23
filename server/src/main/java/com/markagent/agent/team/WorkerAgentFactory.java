@@ -31,6 +31,7 @@ public class WorkerAgentFactory {
     public ReActAgent create(String agentId, String role, com.markagent.tools.CalculatorTool calculator,
             com.markagent.tools.DateTimeTool dateTime,
             com.markagent.tools.HttpRequestTool httpRequest,
+            com.markagent.tools.VisionTool visionTool,
             com.markagent.tools.WebSearchTool webSearch,
             com.markagent.tools.WebFetchTool webFetch,
             com.markagent.tools.WorkspaceFileTool workspaceFile,
@@ -40,6 +41,7 @@ public class WorkerAgentFactory {
         MarkAgentToolRegistrar.register(toolkit, calculator);
         MarkAgentToolRegistrar.register(toolkit, dateTime);
         MarkAgentToolRegistrar.register(toolkit, httpRequest);
+        MarkAgentToolRegistrar.register(toolkit, visionTool);
         MarkAgentToolRegistrar.register(toolkit, webSearch);
         MarkAgentToolRegistrar.register(toolkit, webFetch);
         MarkAgentToolRegistrar.register(toolkit, workspaceFile);
@@ -52,6 +54,7 @@ public class WorkerAgentFactory {
                 规则：
                 - 只做交给你的子任务，最终用中文输出简洁完整的结果汇报。
                 - 需要外部数据用 http_get/http_post，需要最新资讯/实时信息检索用 web_search，需要抓取并提炼网页内容用 web_fetch，需要计算用 calculator，需要保存中间产物用 file_write。
+                - 需要理解图片内容（识别文字/截图/图表）用 vision_analyze：image 传图片，task 写明具体视觉任务，context 写清团队整体目标与已完成的进展。
                 - 工作区内搜索内容用 file_grep，按文件名找文件用 file_glob，修改文件用 file_edit。
                 - 不调用 spawn_agent，不制定总计划，那是 leader 的职责。
                 """.formatted(agentId, role);

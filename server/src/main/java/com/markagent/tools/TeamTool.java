@@ -65,6 +65,7 @@ public class TeamTool {
     private final CalculatorTool calculator;
     private final DateTimeTool dateTime;
     private final HttpRequestTool httpRequest;
+    private final VisionTool visionTool;
     private final WebSearchTool webSearch;
     private final WebFetchTool webFetch;
     private final WorkspaceFileTool workspaceFile;
@@ -80,7 +81,7 @@ public class TeamTool {
 
     public TeamTool(WorkerAgentFactory workerFactory, SseEmitterRegistry registry,
             CalculatorTool calculator, DateTimeTool dateTime,
-            HttpRequestTool httpRequest, WebSearchTool webSearch,
+            HttpRequestTool httpRequest, VisionTool visionTool, WebSearchTool webSearch,
             WebFetchTool webFetch, WorkspaceFileTool workspaceFile,
             FileSearchTool fileSearch, FileEditTool fileEdit,
             @Value("${markagent.team.handle-ttl-minutes:30}") long handleTtlMinutes) {
@@ -89,6 +90,7 @@ public class TeamTool {
         this.calculator = calculator;
         this.dateTime = dateTime;
         this.httpRequest = httpRequest;
+        this.visionTool = visionTool;
         this.webSearch = webSearch;
         this.webFetch = webFetch;
         this.workspaceFile = workspaceFile;
@@ -260,7 +262,7 @@ public class TeamTool {
         }
 
         ReActAgent worker = workerFactory.create(agentId, role, calculator, dateTime, httpRequest,
-                webSearch, webFetch, workspaceFile, fileSearch, fileEdit);
+                visionTool, webSearch, webFetch, workspaceFile, fileSearch, fileEdit);
         RuntimeContext rt = RuntimeContext.builder()
                 .userId(userId)
                 .build();

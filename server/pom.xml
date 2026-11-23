@@ -81,6 +81,13 @@
             <version>${jjwt.version}</version>
         </dependency>
 
+        <!-- PostgreSQL JDBC 驱动：schema 文档生成器 + db_query 连库共用（42.7.7 本地仓库已缓存） -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.7</version>
+        </dependency>
+
         <!-- 文档库块级倒排索引：内嵌 Lucene（MMapDirectory 落盘，OS page cache 管热数据） -->
         <dependency>
             <groupId>org.apache.lucene</groupId>
