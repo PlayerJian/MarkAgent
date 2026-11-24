@@ -14,6 +14,7 @@ import {
 import { useAuthStore } from '../stores/authStore'
 import { setToken } from '../api/client'
 import SessionListPanel from '../components/SessionListPanel'
+import AskDialog from '../components/AskDialog'
 
 const { Sider, Content, Header } = Layout
 
@@ -142,6 +143,9 @@ export default function MainLayout() {
           </div>
         ))}
       </div>
+
+      {/* 人工审批弹框：全局挂载，任务后台运行时切页仍可见 */}
+      <AskDialog />
     </Layout>
   )
 }

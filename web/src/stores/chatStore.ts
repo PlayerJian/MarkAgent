@@ -52,6 +52,10 @@ interface ChatState extends ReplayState {
   resumeTask: () => Promise<void>
   pauseTask: () => Promise<void>
   stopTask: () => Promise<void>
+  /** 应答待决审批：POST 唤醒 ask_user 工具线程，成功后本地出列 */
+  answerAsk: (callId: string, answer: string) => Promise<void>
+  /** 本地移除待决审批（倒计时归零/服务端已收尾），不影响服务端 */
+  dismissAsk: (callId: string) => void
   reset: () => void
   /** @internal 订阅任务流（断线重连用） */
   _subscribe: (taskId: string, afterSeq: number) => void
@@ -94,6 +98,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       lastSeq: 0,
       compactNotice: null,
+      pendingAsks: [],
     })
     // 检索来源（二选一互斥）：库问答 libraryId / 单文件 uploadId；会话级绑定由服务端继承
     const source = get().docSource
@@ -144,6 +149,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         error: null,
         lastSeq: 0,
         compactNotice: null,
+        pendingAsks: [],
         // 检索绑定无需回显：服务端按会话级 docLibraryId 自动继承
         docSource: { kind: 'none' },
       })
@@ -199,7 +205,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!state.taskId) return
     abortController?.abort()
     await post(`/tasks/${state.taskId}/stop`)
-    set({ taskStatus: 'cancelled' })
+    // abort 先于 stop 请求，服务端广播的 DONE(CANCELLED) 收不到：本地收尾，把进行中的
+    // assistant 消息标记为完成（否则流式占位与工具折叠块会一直停在执行态）。
+    // stop 已联动 cancelPending：待决审批弹框一并清空
+    set((prev) => ({
+      taskStatus: 'cancelled',
+      messages: prev.messages.map((m) =>
+        m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m,
+      ),
+      pendingAsks: [],
+    }))
+  },
+
+  answerAsk: async (callId, answer) => {
+    const { taskId } = get()
+    if (!taskId) return
+    try {
+      await post(`/tasks/${taskId}/asks/${callId}/respond`, { answer })
+    } catch {
+      // 400（已应答/已取消）或网络失败：服务端工具线程自行按取消/超时收尾，本地照常出列
+    }
+    set((prev) => ({ pendingAsks: prev.pendingAsks.filter((a) => a.callId !== callId) }))
+  },
+
+  dismissAsk: (callId) => {
+    set((prev) => ({ pendingAsks: prev.pendingAsks.filter((a) => a.callId !== callId) }))
   },
 
   // 新对话 = 新会话：清掉 sessionId 与检索来源，下一次发送由服务端分配新会话（任务列表按会话分组）
@@ -209,6 +239,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: [], taskId: null, sessionId: null, plan: null, agents: [],
       taskStatus: 'idle', error: null, lastSeq: 0, compactNotice: null,
+      pendingAsks: [],
       docSource: { kind: 'none' },
     })
   },

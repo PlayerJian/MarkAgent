@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  *   <li>入口校验（{@link UrlChecks#validateFetch}）：长度 ≤2000、可解析、无凭据、公网域名</li>
  *   <li>http → https 自动升级；重定向手动控制：仅同 host（忽略 www）跟随，跨域重定向返回
  *       REDIRECT DETECTED 提示让模型用新 URL 重试（防开放重定向被利用跳内网/恶意域）</li>
- *   <li>60s 超时、响应体 10MB 上限、仅文本 content-type</li>
+ *   <li>60s 请求超时、响应体读取 45s 截止、响应体 10MB 上限、仅文本 content-type</li>
  *   <li>HTML → Markdown（{@link HtmlToMarkdown}，零依赖正则近似 turndown）→ 100K 字符截断</li>
  *   <li>15 分钟 URL 缓存（{@link UrlContentCache}）</li>
  *   <li>prompt 提炼：可用时经 DeepSeek 小模型按 prompt 作答（含引用/版权约束），
@@ -57,6 +57,9 @@ public class WebFetchTool {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    /** 响应体读取截止时间：JDK HttpClient 的请求超时只管到响应头，慢速正文会无限阻塞
+     *  （曾实测 GitHub 10MB 页面滴流下载吃满 5 分钟框架超时，UI 干等） */
+    private static final Duration BODY_READ_DEADLINE = Duration.ofSeconds(45);
 
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .connectTimeout(CONNECT_TIMEOUT)
@@ -159,7 +162,19 @@ public class WebFetchTool {
     }
 
     /** 响应体：文本 + 原始字节数 */
-    private record Body(String text, long bytes) {
+    record Body(String text, long bytes) {
+    }
+
+    /** 响应体读取结果：成功时 body 非空；失败时 error 非空 */
+    record BodyOutcome(Body body, String error) {
+
+        static BodyOutcome ok(Body body) {
+            return new BodyOutcome(body, null);
+        }
+
+        static BodyOutcome error(String message) {
+            return new BodyOutcome(null, message);
+        }
     }
 
     /** http→https 升级后抓取；手动跟随同 host 重定向（最多 {@link #MAX_REDIRECTS} 次） */
@@ -208,11 +223,11 @@ public class WebFetchTool {
                 return FetchOutcome.error("错误：内容类型为 \"" + contentType + "\"，web_fetch 仅处理文本页面；"
                         + "二进制文件（PDF/图片等）请用 http_get 获取后另作处理");
             }
-            Body body = readBody(response);
-            if (body == null) {
-                return FetchOutcome.error("错误：响应体超过 "
-                        + (MAX_HTTP_CONTENT_BYTES / 1024 / 1024) + "MB 上限，已中止");
+            BodyOutcome outcome = readBody(response);
+            if (outcome.body() == null) {
+                return FetchOutcome.error(outcome.error());
             }
+            Body body = outcome.body();
             boolean html = contentType.isBlank()
                     || contentType.toLowerCase(Locale.ROOT).contains("text/html");
             String markdown = html ? HtmlToMarkdown.convert(body.text(), URI.create(current)) : body.text();
@@ -222,14 +237,42 @@ public class WebFetchTool {
         return FetchOutcome.error("错误：重定向超过 " + MAX_REDIRECTS + " 次，已中止");
     }
 
-    /** 读取响应体：上限 {@link #MAX_HTTP_CONTENT_BYTES}，超限返回 null；流在此关闭 */
-    private static Body readBody(HttpResponse<InputStream> response) {
+    /** 读取响应体：上限 {@link #MAX_HTTP_CONTENT_BYTES}、截止 {@link #BODY_READ_DEADLINE}；流在此关闭 */
+    static BodyOutcome readBody(HttpResponse<InputStream> response) {
+        return readBody(response, BODY_READ_DEADLINE);
+    }
+
+    /** 同 {@link #readBody(HttpResponse)}，截止时间可指定（测试用短超时验证） */
+    static BodyOutcome readBody(HttpResponse<InputStream> response, Duration deadline) {
         long contentLength = response.headers().firstValueAsLong("content-length").orElse(-1);
         if (contentLength > MAX_HTTP_CONTENT_BYTES) {
             closeQuietly(response);
-            return null;
+            return BodyOutcome.error("错误：Content-Length " + contentLength + " 超过 "
+                    + (MAX_HTTP_CONTENT_BYTES / 1024 / 1024) + "MB 上限，已中止" + githubHint());
         }
         try (InputStream in = response.body()) {
+            BodyOutcome[] holder = new BodyOutcome[1];
+            Thread reader = Thread.ofVirtual().name("webfetch-body-read").start(
+                    () -> holder[0] = readAll(in, response));
+            if (reader.join(deadline)) {
+                return holder[0];
+            }
+            // 截止时间到：关闭流使阻塞读立即抛 IOException，reader 线程随即退出
+            closeQuietly(response);
+            return BodyOutcome.error("错误：响应体读取超时（" + deadline.toSeconds()
+                    + " 秒内未读完），已中止");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return BodyOutcome.error("错误：响应体读取被中断");
+        } catch (IOException e) {
+            log.debug("web_fetch 读取响应体失败: {}", e.toString());
+            return BodyOutcome.error("错误：响应体读取失败 - " + e.getMessage());
+        }
+    }
+
+    /** 阻塞读取循环（独立线程运行，截止时间由调用方经关流打断） */
+    private static BodyOutcome readAll(InputStream in, HttpResponse<?> response) {
+        try {
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             byte[] chunk = new byte[8192];
             long total = 0;
@@ -237,15 +280,21 @@ public class WebFetchTool {
             while ((n = in.read(chunk)) != -1) {
                 total += n;
                 if (total > MAX_HTTP_CONTENT_BYTES) {
-                    return null;
+                    return BodyOutcome.error("错误：响应体超过 "
+                            + (MAX_HTTP_CONTENT_BYTES / 1024 / 1024) + "MB 上限，已中止" + githubHint());
                 }
                 buf.write(chunk, 0, n);
             }
-            return new Body(buf.toString(charsetOf(response)), total);
-        } catch (IOException e) {
+            return BodyOutcome.ok(new Body(buf.toString(charsetOf(response)), total));
+        } catch (Exception e) {
             log.debug("web_fetch 读取响应体失败: {}", e.toString());
-            return null;
+            return BodyOutcome.error("错误：响应体读取失败 - " + e.getMessage());
         }
+    }
+
+    /** 超限错误的补救提示：仓库页 HTML 体积大且噪音多，API 接口才是正确入口 */
+    private static String githubHint() {
+        return "；GitHub 仓库页请改用 http_get 访问 api.github.com 接口获取仓库元数据";
     }
 
     private static void closeQuietly(HttpResponse<?> response) {

@@ -43,6 +43,15 @@ export interface AgentUi {
   ok: boolean
 }
 
+/** 人工审批（ask_user）：等待用户选择的待决提问（ASK_USER 事件入列，应答/超时/取消出列） */
+export interface PendingAskUi {
+  callId: string
+  question: string
+  options: string[]
+  /** 服务端钳制后的超时秒数（弹框倒计时用） */
+  timeoutSeconds: number
+}
+
 export type TaskUiStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
 
 export interface SseEventEnvelope {
@@ -62,6 +71,8 @@ export interface ReplayState {
   error: string | null
   /** 上下文压缩系统提示（COMPACT 事件折叠结果，消息流底部细线展示） */
   compactNotice: { phase: string; note: string } | null
+  /** 待决人工审批（ask_user 工具发起的 ASK_USER 事件入列，弹框应答/任务终态出列） */
+  pendingAsks: PendingAskUi[]
 }
 
 export const initialReplay: ReplayState = {
@@ -73,6 +84,7 @@ export const initialReplay: ReplayState = {
   lastSeq: 0,
   error: null,
   compactNotice: null,
+  pendingAsks: [],
 }
 
 /**
@@ -202,10 +214,31 @@ export function applyEvent(
       changed = true
       break
     }
-    case 'PAUSED':
-      next.taskStatus = 'paused'
+    case 'ASK_USER': {
+      // 人工审批请求入列（弹框渲染；重连回放与实时流重叠投递按 callId 去重）。
+      // 服务端在 pause/stop 时 cancelPending：应答/取消/超时后本端出列由
+      // answerAsk / dismissAsk / 任务终态事件负责。
+      const callId = data.callId as string
+      if (!callId || state.pendingAsks.some((a) => a.callId === callId)) break
+      next.pendingAsks = [
+        ...state.pendingAsks,
+        {
+          callId,
+          question: (data.question as string) ?? '',
+          options: (data.options as string[]) ?? [],
+          timeoutSeconds: (data.timeoutSeconds as number) ?? 120,
+        },
+      ]
       changed = true
       break
+    }
+    case 'PAUSED': {
+      next.taskStatus = 'paused'
+      // pause 已联动 cancelPending：待决审批全部作废，弹框清空
+      if (state.pendingAsks.length > 0) next.pendingAsks = []
+      changed = true
+      break
+    }
     case 'COMPACT': {
       const phase = data.phase as string
       if (phase === 'planned') {
@@ -225,6 +258,7 @@ export function applyEvent(
     }
     case 'ERROR':
       next.error = data.message as string
+      if (state.pendingAsks.length > 0) next.pendingAsks = []
       changed = true
       break
     case 'DONE': {
@@ -235,6 +269,7 @@ export function applyEvent(
         m.role === 'assistant' && m.streaming ? { ...m, streaming: false } : m,
       )
       next.messages = messages
+      if (state.pendingAsks.length > 0) next.pendingAsks = []
       changed = true
       break
     }

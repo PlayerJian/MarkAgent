@@ -60,6 +60,7 @@ public class AgentScopeConfig {
     public Toolkit toolkit(com.markagent.tools.CalculatorTool calculator,
             com.markagent.tools.DateTimeTool dateTime,
             com.markagent.tools.HttpRequestTool httpRequest,
+            com.markagent.tools.VisionTool visionTool,
             com.markagent.tools.WebSearchTool webSearch,
             com.markagent.tools.WebFetchTool webFetch,
             com.markagent.tools.WorkspaceFileTool workspaceFile,
@@ -75,11 +76,13 @@ public class AgentScopeConfig {
             com.markagent.cron.CronTool cronTool,
             com.markagent.integration.IntegrationTool integrationTool,
             com.markagent.tools.DocQueryTool docQuery,
+            com.markagent.schema.SchemaCatalogTool schemaCatalogTool,
             com.markagent.mcp.McpServerManager mcpManager) {
         Toolkit toolkit = new Toolkit();
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, calculator);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, dateTime);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, httpRequest);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, visionTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, webSearch);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, webFetch);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, workspaceFile);
@@ -95,6 +98,7 @@ public class AgentScopeConfig {
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, cronTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, integrationTool);
         com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, docQuery);
+        com.markagent.tools.MarkAgentToolRegistrar.register(toolkit, schemaCatalogTool);
         // MCP 启动期注册：ReActAgent.Builder 深拷贝 toolkit，必须在 agent build 前完成
         mcpManager.attach(toolkit);
         return toolkit;

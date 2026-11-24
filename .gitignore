@@ -23,3 +23,5 @@ data/
 # OS
 Thumbs.db
 .DS_Store
+logs/
+docs/

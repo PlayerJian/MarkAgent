@@ -3,8 +3,8 @@
  * ChatPage（实时）与 SessionDetailPage（历史回放）共用，保证两处渲染完全一致。
  */
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Card, Collapse, Space, Steps, Tag, Typography } from 'antd'
-import { CheckCircleOutlined, DownOutlined, LoadingOutlined, ToolOutlined } from '@ant-design/icons'
+import { Collapse, Space, Steps, Tag, Typography } from 'antd'
+import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, ToolOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { AgentUi, PlanUi, TaskUiStatus, ToolCallUi, UiMessage } from '../stores/replay'
@@ -161,43 +161,93 @@ export function ProcessPanel({
   )
 }
 
-/** 工具调用卡片：运行中 spinner；完成后默认折叠为一行（结果摘要可展开查看） */
-function ToolCallCard({ call }: { call: ToolCallUi }) {
+/** 单条工具调用行（展开态）：状态图标 + 名称 + 结果摘要（超长可滚动） */
+function ToolCallRow({ call }: { call: ToolCallUi }) {
   return (
-    <Card
-      size="small"
-      style={{ marginTop: 8, background: 'var(--bg-1)' }}
-      styles={{ body: { paddingTop: 8, paddingBottom: call.running ? 12 : 4 } }}
-      title={
-        <Space size={6}>
-          {call.running ? <LoadingOutlined spin /> : <ToolOutlined />}
-          <Text code>{call.name}</Text>
-          {!call.running && <Tag color={call.ok ? 'green' : 'red'}>{call.ok ? '成功' : '失败'}</Tag>}
-        </Space>
-      }
-    >
-      {call.running ? (
-        <Text type="secondary">工具执行中…</Text>
-      ) : (
-        <Collapse
-          ghost
-          size="small"
-          items={[{
-            key: 'result',
-            label: <Text type="secondary" style={{ fontSize: 12 }}>结果摘要</Text>,
-            children: (
-              <Text type="secondary" style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                {call.resultSummary || '（无输出）'}
-              </Text>
-            ),
-          }]}
-        />
+    <div style={{ padding: '6px 0', borderTop: '1px dashed var(--line-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+        {call.running ? (
+          <LoadingOutlined spin style={{ color: 'var(--cyan)' }} />
+        ) : call.ok ? (
+          <CheckCircleOutlined style={{ color: 'var(--green)' }} />
+        ) : (
+          <CloseCircleOutlined style={{ color: 'var(--red)' }} />
+        )}
+        <Text code>{call.name}</Text>
+        {!call.running && (
+          <Tag style={{ marginInlineEnd: 0 }} color={call.ok ? 'green' : 'red'}>{call.ok ? '成功' : '失败'}</Tag>
+        )}
+        {call.running && <Text type="secondary" style={{ fontSize: 12 }}>执行中…</Text>}
+      </div>
+      {!call.running && (
+        <div
+          style={{
+            marginTop: 4, fontSize: 12, color: 'var(--tx-3)', whiteSpace: 'pre-wrap', overflowWrap: 'break-word',
+            maxHeight: 160, overflowY: 'auto', padding: '6px 8px',
+            background: 'rgba(255,255,255,0.03)', border: '1px solid var(--line-2)',
+          }}
+        >
+          {call.resultSummary || '（无输出）'}
+        </div>
       )}
-    </Card>
+    </div>
   )
 }
 
-/** 单条消息渲染：assistant 带 reasoning 折叠 + markdown + 工具卡片 */
+/**
+ * 工具调用块（参考 Claude Code 的 think 折叠）：始终折叠为一行（工具数 + 名称摘要，
+ * 运行中在行内实时显示 spinner 与工具名），不自动展开/收起，仅手动点击切换展开，
+ * 避免一轮内连续调用多个工具时反复展开收起造成界面闪烁。
+ */
+function ToolCallsBlock({ calls }: { calls: ToolCallUi[] }) {
+  const [open, setOpen] = useState(false)
+  const anyRunning = calls.some((c) => c.running)
+
+  if (calls.length === 0) return null
+  const failedCount = calls.filter((c) => !c.running && !c.ok).length
+
+  return (
+    <div style={{ marginTop: 8, borderTop: '1px dashed var(--line-2)' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', minWidth: 0, padding: '6px 0' }}
+      >
+        {anyRunning ? (
+          <LoadingOutlined spin style={{ color: 'var(--cyan)' }} />
+        ) : (
+          <ToolOutlined style={{ color: failedCount > 0 ? 'var(--red)' : 'var(--tx-3)' }} />
+        )}
+        <Text style={{ fontSize: 12, color: 'var(--tx-2)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          工具调用 · {calls.length} 个
+        </Text>
+        {!anyRunning && failedCount > 0 && (
+          <Tag color="red" style={{ marginInlineEnd: 0, flexShrink: 0 }}>{failedCount} 失败</Tag>
+        )}
+        <span
+          style={{
+            flex: 1, minWidth: 0, fontSize: 12, color: 'var(--tx-3)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {calls.map((c) => c.name).join(' · ')}
+        </span>
+        <DownOutlined rotate={open ? 180 : 0} style={{ fontSize: 10, color: 'var(--tx-3)', flexShrink: 0 }} />
+      </div>
+      {open && (
+        <div style={{ padding: '0 0 4px' }}>
+          {calls.map((call) => (
+            <ToolCallRow key={call.callId} call={call} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 单条消息渲染：assistant 顺序为 思考过程 → 工具调用（折叠块）→ 回答正文，
+ * 模型回答始终输出在工具调用下方。
+ */
 export function MessageBubble({ message }: { message: UiMessage }) {
   const isUser = message.role === 'user'
   return (
@@ -224,14 +274,12 @@ export function MessageBubble({ message }: { message: UiMessage }) {
                 }]}
               />
             )}
+            {message.toolCalls.length > 0 && <ToolCallsBlock calls={message.toolCalls} />}
             {message.content ? (
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
             ) : (
               message.streaming && <Text type="secondary">思考中…</Text>
             )}
-            {message.toolCalls.map((call) => (
-              <ToolCallCard key={call.callId} call={call} />
-            ))}
           </div>
         )}
       </div>

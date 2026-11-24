@@ -1,7 +1,16 @@
 package com.markagent.tools;
 
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -9,12 +18,13 @@ import java.time.ZoneOffset;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * WebFetchTool 纯逻辑单测（不覆盖真实 HTTP 抓取）：
- * 入口 URL 校验、http→https 升级、重定向许可判定、content-type 文本判定、markdown 截断、URL 缓存。
+ * WebFetchTool 单测：纯逻辑（入口 URL 校验、http→https 升级、重定向许可判定、content-type 文本判定、
+ * markdown 截断、URL 缓存）+ 本地 HttpServer 真实响应验证响应体读取与截止时间。
  */
 class WebFetchToolTest {
 
@@ -181,6 +191,68 @@ class WebFetchToolTest {
     @Test
     void cacheDurationIs15Minutes() {
         assertEquals(Duration.ofMinutes(15), UrlContentCache.TTL);
+    }
+
+    // ==================== 响应体读取（本地 HttpServer 真实响应） ====================
+
+    @Test
+    void readBodyReturnsTextForSmallBody() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/ok", exchange -> {
+            byte[] body = "<h1>hi</h1>".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        server.start();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(
+                    URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/ok")).GET().build();
+            HttpResponse<InputStream> response = HttpClient.newHttpClient()
+                    .send(request, HttpResponse.BodyHandlers.ofInputStream());
+            WebFetchTool.BodyOutcome outcome = WebFetchTool.readBody(response);
+            assertNull(outcome.error());
+            assertNotNull(outcome.body());
+            assertEquals("<h1>hi</h1>", outcome.body().text());
+            assertEquals("<h1>hi</h1>".getBytes(StandardCharsets.UTF_8).length, outcome.body().bytes());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void readBodyEnforcesDeadlineOnStalledStream() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        // chunked 且无 content-length（对齐 GitHub 场景）：先滴流一小段再停住，永不写完
+        server.createContext("/slow", exchange -> {
+            try {
+                exchange.sendResponseHeaders(200, 0); // chunked、无 content-length（对齐 GitHub 场景）
+                OutputStream out = exchange.getResponseBody();
+                out.write("partial".getBytes(StandardCharsets.UTF_8));
+                out.flush();
+                Thread.sleep(3000);
+                out.close();
+            } catch (Exception ignored) {
+                // 客户端超时关闭连接后写失败属预期
+            }
+        });
+        server.start();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(
+                    URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/slow")).GET().build();
+            HttpResponse<InputStream> response = HttpClient.newHttpClient()
+                    .send(request, HttpResponse.BodyHandlers.ofInputStream());
+            long start = System.currentTimeMillis();
+            WebFetchTool.BodyOutcome outcome = WebFetchTool.readBody(response, Duration.ofSeconds(1));
+            long elapsed = System.currentTimeMillis() - start;
+            assertNull(outcome.body());
+            assertNotNull(outcome.error());
+            assertTrue(outcome.error().contains("读取超时"), "实际错误: " + outcome.error());
+            assertTrue(elapsed < 2500, "截止时间应远早于框架 5 分钟兜底，实际耗时 " + elapsed + "ms");
+        } finally {
+            server.stop(0);
+        }
     }
 
     /** 测试用可变时钟：advance 拨表驱动 TTL 惰性过期 */
